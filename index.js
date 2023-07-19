@@ -8,31 +8,6 @@ let options;
 
 const sleep = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
 
-async function welcome() {
-  console.log(`${chalk.bgBlueBright("hey yo")}`);
-
-  await sleep(500);
-
-  console.log(`
-    ${chalk.bgBlue("Hello World")}
-    Hi
-    Goodbye
-  `);
-}
-
-async function askName() {
-  const answers = await inquirer.prompt({
-    name: "player_name",
-    type: "input",
-    message: "What is your name?",
-    default() {
-      return "Player";
-    },
-  });
-
-  playerName = answers.player_name;
-}
-
 async function moduleSelection() {
   options = await inquirer.prompt({
     name: "selectedModules",
