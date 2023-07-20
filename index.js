@@ -2,7 +2,20 @@
 
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { createSpinner } from "nanospinner";
+// import { createSpinner } from "nanospinner";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
+
+
+const originalFile = {
+  audioFilePath: "",
+  rawTranscriptionPath: "",
+  syncedTranscriptionPath: "",
+  paralanguageJSONPath: "",
+  finalWebVTT: "",
+  typographyModulationMappingsPath: "",
+};
 
 let options;
 
@@ -48,45 +61,93 @@ async function moduleCalls() {
     }
   }
 }
-
-async function handleAnswer(isCorrect) {
-  const spinner = createSpinner("Checking answer...").start();
-  await sleep();
-
-  if (isCorrect) {
-    spinner.success({ text: `Nice work ${playerName}` });
-  } else {
-    spinner.error({ text: `You died ${playerName}` });
-    process.exit(1);
-  }
+function outputMessage(s, prefix = "MODULE") {
+  return `\n\n${chalk.bgGreenBright.black(` ${prefix} `)} ${chalk.bold(s)}`;
 }
 
-function outputModule(s) {
-  return `\n\n${chalk.bgGreenBright.black(" MODULE ")} ${chalk.bold(s)}`;
+function getFilenameRoot(originalPath) {
+  return path.parse(originalPath);
+  // { root, dir, base, ext, name }
 }
 
-async function audioTranscription() {
-  console.log(outputModule(`Audio Transcription`));
-  console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
+function newFile(pathObject, suffix, extension = null) {
+  return path.format({
+    dir: pathObject.dir,
+    name: pathObject.name + suffix,
+    ext: extension ? extension : pathObject.ext,
+  });
+}
+
+function extractAudio(audioFilePath) {
+  return new Promise(async (resolve, reject) => {
+    console.log(outputMessage("Audio Extraction"));
+
+    if (!originalFile.audioFilePath && audioFilePath === "") {
+      const answers = await inquirer.prompt({
+        name: "path",
+        type: "input",
+        message: "From what file should we pull the speech from?",
+      });
+      originalFile.audioFilePath = getFilenameRoot(
+        path.normalize(answers.path),
+      );
+    } else if (audioFilePath !== "") {
+      originalFile.audioFilePath = audioFilePath;
+    }
+
+    if (!fs.existsSync(path.format(originalFile.audioFilePath))) {
+      console.log(`${chalk.bgRed.white(" ERROR: ")} File not found`);
+      reject(new Error("File not found"));
+      return;
+    }
+
+    const command = `ffmpeg -y -i "${path.format(
+      originalFile.audioFilePath,
+    )}" -vn -ac 1 -ar 16000 "${newFile(
+      originalFile.audioFilePath,
+      "_temp",
+      ".wav",
+    )}";`;
+
+    console.log(outputMessage("Extracting audio", "FFMPEG"));
+    console.log(chalk.bgBlue(command));
+
+    try {
+      await exec(command);
+      console.log(chalk.bgBlue(`exec ran`));
+
+      resolve(); // Resolve the Promise on successful extraction
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
+  });
+}
+
+async function audioTranscription(audioFilePath = "") {
+  console.log(outputMessage(`Audio Transcription`));
+  // console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
+
+  await extractAudio(audioFilePath);
 }
 async function forceSync() {
-  console.log(outputModule(`Force-Sync Module`));
+  console.log(outputMessage(`Force-Sync Module`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 async function extractProsody() {
-  console.log(outputModule(`Speech metrics: Prosody`));
+  console.log(outputMessage(`Speech metrics: Prosody`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 async function extractAffectiveDimensions() {
-  console.log(outputModule(`Speech metrics: Valence, Arousal, Dominance`));
+  console.log(outputMessage(`Speech metrics: Valence, Arousal, Dominance`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 async function generateCaptionFile() {
-  console.log(outputModule(`Speech metrics: Prosody`));
+  console.log(outputMessage(`Speech metrics: Prosody`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 async function generateCaptionedVideo() {
-  console.log(outputModule(`Generate Captioned Video`));
+  console.log(outputMessage(`Generate Captioned Video`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 
