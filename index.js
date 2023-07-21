@@ -7,9 +7,13 @@ import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
 
+let spinner = null;
 
-const originalFile = {
+const whisperPath = `/Users/calua/repositorios/whisper/whisper.cpp`;
+
+const pathsObject = {
   audioFilePath: "",
+  rectifiedAudioFilePath: "",
   rawTranscriptionPath: "",
   syncedTranscriptionPath: "",
   paralanguageJSONPath: "",
@@ -20,6 +24,21 @@ const originalFile = {
 let options;
 
 const sleep = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
+
+function updateSpinner(message) {
+  if (spinner !== null && spinner.isSpinning()) {
+    spinner.stop();
+    process.stdout.write("\n");
+  }
+  spinner = new Spinner(" " + message);
+  spinner.setSpinnerString(18);
+  spinner.start();
+}
+
+function finishCurrentSpinner(message) {
+  spinner.stop(true);
+  console.log(`${chalk.greenBright("ok")} ${message}`);
+}
 
 async function moduleSelection() {
   options = await inquirer.prompt({
@@ -61,8 +80,9 @@ async function moduleCalls() {
     }
   }
 }
+
 function outputMessage(s, prefix = "MODULE") {
-  return `\n\n${chalk.bgGreenBright.black(` ${prefix} `)} ${chalk.bold(s)}`;
+  return `${chalk.bgGreenBright.black(` ${prefix} `)} ${chalk.bold(s)}`;
 }
 
 function getFilenameRoot(originalPath) {
@@ -71,10 +91,12 @@ function getFilenameRoot(originalPath) {
 }
 
 function newFile(pathObject, suffix, extension = null) {
+  const { dir, name, ext } = pathObject;
+  const newDir = dir || "."; // Use the current directory as a default value if dir is empty
   return path.format({
-    dir: pathObject.dir,
-    name: pathObject.name + suffix,
-    ext: extension ? extension : pathObject.ext,
+    dir: newDir,
+    name: name + suffix,
+    ext: extension ? extension : ext,
   });
 }
 
@@ -82,41 +104,47 @@ function extractAudio(audioFilePath) {
   return new Promise(async (resolve, reject) => {
     console.log(outputMessage("Audio Extraction"));
 
-    if (!originalFile.audioFilePath && audioFilePath === "") {
+    if (!pathsObject.audioFilePath && audioFilePath === "") {
       const answers = await inquirer.prompt({
         name: "path",
         type: "input",
         message: "From what file should we pull the speech from?",
       });
-      originalFile.audioFilePath = getFilenameRoot(
-        path.normalize(answers.path),
-      );
+      pathsObject.audioFilePath = getFilenameRoot(path.normalize(answers.path));
     } else if (audioFilePath !== "") {
-      originalFile.audioFilePath = audioFilePath;
+      pathsObject.audioFilePath = audioFilePath;
     }
 
-    if (!fs.existsSync(path.format(originalFile.audioFilePath))) {
+    if (!fs.existsSync(path.format(pathsObject.audioFilePath))) {
       console.log(`${chalk.bgRed.white(" ERROR: ")} File not found`);
       reject(new Error("File not found"));
       return;
     }
 
+    pathsObject.rectifiedAudioFilePath = path.parse(
+      newFile(pathsObject.audioFilePath, "_temp", ".wav"),
+    );
+
     const command = `ffmpeg -y -i "${path.format(
-      originalFile.audioFilePath,
-    )}" -vn -ac 1 -ar 16000 "${newFile(
-      originalFile.audioFilePath,
-      "_temp",
-      ".wav",
+      pathsObject.audioFilePath,
+    )}" -vn -ac 1 -ar 16000 "${path.format(
+      pathsObject.rectifiedAudioFilePath,
     )}";`;
 
-    console.log(outputMessage("Extracting audio", "FFMPEG"));
-    console.log(chalk.bgBlue(command));
+    updateSpinner(outputMessage("Extracting audio...", "FFmpeg"));
 
     try {
-      await exec(command);
-      console.log(chalk.bgBlue(`exec ran`));
-
-      resolve(); // Resolve the Promise on successful extraction
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(outputMessage("Audio extracted", "FFmpeg"));
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
     } catch (error) {
       console.error("Error occurred:", error);
       reject(error); // Reject the Promise on error
@@ -128,8 +156,40 @@ async function audioTranscription(audioFilePath = "") {
   console.log(outputMessage(`Audio Transcription`));
   // console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 
-  await extractAudio(audioFilePath);
+  return new Promise(async (resolve, reject) => {
+    await extractAudio(audioFilePath).then(async () => {
+      const VTTFilePath = path.normalize(
+        pathsObject.rectifiedAudioFilePath.dir +
+          "/" +
+          pathsObject.rectifiedAudioFilePath.name,
+      );
+      const command = `${whisperPath}/main -m ${whisperPath}/models/ggml-large.bin -f ${path.format(
+        pathsObject.rectifiedAudioFilePath,
+      )} -ovtt -of ${VTTFilePath}`;
+
+      updateSpinner(outputMessage("Generating transcript...", "Whisper"));
+      try {
+        exec(command, (error, stdout, stderr) => {
+          // This function is the callback that will be executed after the command finishes.
+          if (error) {
+            // Handle any errors that occurred during the command execution.
+            console.error("Error executing command:", error);
+          } else {
+            // The command completed successfully.
+            finishCurrentSpinner(
+              outputMessage("Transcript generated", "Whisper"),
+            );
+            resolve(); // Resolve the Promise on successful extraction
+          }
+        });
+      } catch (error) {
+        console.error("Error occurred:", error);
+        reject(error); // Reject the Promise on error
+      }
+    });
+  });
 }
+
 async function forceSync() {
   console.log(outputMessage(`Force-Sync Module`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
