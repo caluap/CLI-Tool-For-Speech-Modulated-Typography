@@ -15,7 +15,7 @@ const pathsObject = {
   audioFilePath: "",
   rectifiedAudioFilePath: "",
   rawTranscriptionPath: "",
-  syncedTranscriptionPath: "",
+  preparedTranscriptionPath: "",
   paralanguageJSONPath: "",
   finalWebVTT: "",
   typographyModulationMappingsPath: "",
@@ -157,36 +157,39 @@ async function audioTranscription(audioFilePath = "") {
   console.log(outputMessage(`Audio Transcription`));
 
   return new Promise(async (resolve, reject) => {
-    await extractAudio(audioFilePath).then(async () => {
-      const VTTFilePath = path.normalize(
-        pathsObject.rectifiedAudioFilePath.dir +
-          "/" +
-          pathsObject.rectifiedAudioFilePath.name,
-      );
-      const command = `${whisperPath}/main -m ${whisperPath}/models/ggml-large.bin -f ${path.format(
-        pathsObject.rectifiedAudioFilePath,
-      )} --max-len 1 -oj -ovtt -of ${VTTFilePath}`;
+    await extractAudio(audioFilePath);
 
-      updateSpinner(outputMessage("Generating transcript...", "Whisper"));
-      try {
-        exec(command, (error, stdout, stderr) => {
-          // This function is the callback that will be executed after the command finishes.
-          if (error) {
-            // Handle any errors that occurred during the command execution.
-            console.error("Error executing command:", error);
-          } else {
-            // The command completed successfully.
-            finishCurrentSpinner(
-              outputMessage("Transcript generated", "Whisper"),
-            );
-            resolve(); // Resolve the Promise on successful extraction
-          }
-        });
-      } catch (error) {
-        console.error("Error occurred:", error);
-        reject(error); // Reject the Promise on error
-      }
-    });
+    const transcriptionPath = path.normalize(
+      pathsObject.rectifiedAudioFilePath.dir +
+        "/" +
+        pathsObject.rectifiedAudioFilePath.name,
+    );
+
+    const command = `${whisperPath}/main -m ${whisperPath}/models/ggml-large.bin -f ${path.format(
+      pathsObject.rectifiedAudioFilePath,
+    )} --max-len 1 -oj -ovtt -of ${transcriptionPath}`;
+
+    updateSpinner(outputMessage("Generating transcript...", "Whisper"));
+
+    try {
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(
+            outputMessage("Transcript generated", "Whisper"),
+          );
+          pathsObject.rawTranscriptionPath = transcriptionPath + ".json";
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
   });
 }
 
