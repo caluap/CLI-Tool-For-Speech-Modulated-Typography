@@ -81,7 +81,10 @@ async function moduleCalls() {
   }
 }
 
-function outputMessage(s, prefix = "MODULE") {
+function outputMessage(s, prefix = null) {
+  if (prefix === null) {
+    return chalk.cyanBright.bold(`>>> ${s}`);
+  }
   return `${chalk.bgGreenBright.black(` ${prefix} `)} ${chalk.bold(s)}`;
 }
 
@@ -102,8 +105,6 @@ function newFile(pathObject, suffix, extension = null) {
 
 function extractAudio(audioFilePath) {
   return new Promise(async (resolve, reject) => {
-    console.log(outputMessage("Audio Extraction"));
-
     if (!pathsObject.audioFilePath && audioFilePath === "") {
       const answers = await inquirer.prompt({
         name: "path",
