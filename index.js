@@ -2,7 +2,7 @@
 
 import chalk from "chalk";
 import inquirer from "inquirer";
-// import { createSpinner } from "nanospinner";
+import { Spinner } from "cli-spinner";
 import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
