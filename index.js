@@ -154,7 +154,6 @@ function extractAudio(audioFilePath) {
 
 async function audioTranscription(audioFilePath = "") {
   console.log(outputMessage(`Audio Transcription`));
-  // console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 
   return new Promise(async (resolve, reject) => {
     await extractAudio(audioFilePath).then(async () => {
@@ -165,7 +164,7 @@ async function audioTranscription(audioFilePath = "") {
       );
       const command = `${whisperPath}/main -m ${whisperPath}/models/ggml-large.bin -f ${path.format(
         pathsObject.rectifiedAudioFilePath,
-      )} -ovtt -of ${VTTFilePath}`;
+      )} --max-len 1 -oj -ovtt -of ${VTTFilePath}`;
 
       updateSpinner(outputMessage("Generating transcript...", "Whisper"));
       try {
