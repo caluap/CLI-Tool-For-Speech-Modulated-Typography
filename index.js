@@ -61,6 +61,7 @@ async function moduleCalls() {
     switch (option) {
       case "Audio Transcription":
         await audioTranscription();
+        fixTranscriptionPunctuation();
         break;
       case "Force Sync":
         await forceSync();
@@ -183,6 +184,34 @@ async function audioTranscription(audioFilePath = "") {
             outputMessage("Transcript generated", "Whisper"),
           );
           pathsObject.rawTranscriptionPath = transcriptionPath + ".json";
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
+  });
+}
+
+function fixTranscriptionPunctuation() {
+  return new Promise(async (resolve, reject) => {
+    pathsObject.preparedTranscriptionPath = newFile(
+      pathsObject.audioFilePath,
+      "_transcription",
+      ".json",
+    );
+    const command = `python3 ./fix_transcription_punctuation.py ${pathsObject.rawTranscriptionPath} ${pathsObject.preparedTranscriptionPath}`;
+    updateSpinner(outputMessage("Fixing transcription...", "Python"));
+    try {
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(outputMessage("Transcription fixed", "Python"));
           resolve(); // Resolve the Promise on successful extraction
         }
       });

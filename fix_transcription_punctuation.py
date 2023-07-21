@@ -17,7 +17,8 @@ def merge_words_with_punctuation(input_file, output_file):
             current_entry["timestamps"]["to"] = entry["timestamps"]["to"]
             current_entry["offsets"]["to"] = entry["offsets"]["to"]
         else:
-            merged_data.append(current_entry)
+            if current_entry != None and current_entry["text"] != "":
+              merged_data.append(current_entry)
             if entry["text"] == "":
                 current_entry = None
             else:
