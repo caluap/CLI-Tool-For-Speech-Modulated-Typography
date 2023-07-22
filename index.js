@@ -47,7 +47,6 @@ async function moduleSelection() {
     message: chalk.greenBright(` What modules do you want to run? `),
     choices: [
       { value: "Audio Transcription" },
-      { value: "Force Sync" },
       { value: "Speech metrics: Prosody" },
       { value: "Speech metrics: Valence, Arousal, Dominance" },
       { value: "Generate Caption File" },
@@ -61,10 +60,7 @@ async function moduleCalls() {
     switch (option) {
       case "Audio Transcription":
         await audioTranscription();
-        fixTranscriptionPunctuation();
-        break;
-      case "Force Sync":
-        await forceSync();
+        await fixTranscriptionPunctuation();
         break;
       case "Speech metrics: Prosody":
         await extractProsody();
@@ -84,7 +80,7 @@ async function moduleCalls() {
 
 function outputMessage(s, prefix = null) {
   if (prefix === null) {
-    return chalk.cyanBright.bold(`>>> ${s}`);
+    return chalk.cyanBright.bold(`\n>>> ${s}`);
   }
   return `${chalk.bgGreenBright.black(` ${prefix} `)} ${chalk.bold(s)}`;
 }
@@ -194,7 +190,7 @@ async function audioTranscription(audioFilePath = "") {
   });
 }
 
-function fixTranscriptionPunctuation() {
+async function fixTranscriptionPunctuation() {
   return new Promise(async (resolve, reject) => {
     pathsObject.preparedTranscriptionPath = newFile(
       pathsObject.audioFilePath,
@@ -222,10 +218,6 @@ function fixTranscriptionPunctuation() {
   });
 }
 
-async function forceSync() {
-  console.log(outputMessage(`Force-Sync Module`));
-  console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
-}
 async function extractProsody() {
   console.log(outputMessage(`Speech metrics: Prosody`));
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
