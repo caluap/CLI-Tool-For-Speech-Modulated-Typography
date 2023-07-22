@@ -141,7 +141,9 @@ function extractAudio(audioFilePath) {
           console.error("Error executing command:", error);
         } else {
           // The command completed successfully.
-          finishCurrentSpinner(outputMessage("Audio extracted", "FFmpeg"));
+          finishCurrentSpinner(
+            outputMessage("The audio has been extracted!", "FFmpeg"),
+          );
           resolve(); // Resolve the Promise on successful extraction
         }
       });
@@ -179,7 +181,7 @@ async function audioTranscription(audioFilePath = "") {
         } else {
           // The command completed successfully.
           finishCurrentSpinner(
-            outputMessage("Transcript generated", "Whisper"),
+            outputMessage("The transcript has been generated!", "Whisper"),
           );
           pathsObject.rawTranscriptionPath = transcriptionPath + ".json";
           resolve(); // Resolve the Promise on successful extraction
@@ -209,7 +211,9 @@ async function fixTranscriptionPunctuation() {
           console.error("Error executing command:", error);
         } else {
           // The command completed successfully.
-          finishCurrentSpinner(outputMessage("Transcription fixed", "Python"));
+          finishCurrentSpinner(
+            outputMessage("The transcription has been fixed!", "Python"),
+          );
           resolve(); // Resolve the Promise on successful extraction
         }
       });
@@ -246,7 +250,7 @@ async function extractAffectiveDimensions() {
         } else {
           // The command completed successfully.
           finishCurrentSpinner(
-            outputMessage("Emotions have been figured out!", "Python"),
+            outputMessage("The emotions have been figured out!", "Python"),
           );
           resolve(); // Resolve the Promise on successful extraction
         }
@@ -257,8 +261,42 @@ async function extractAffectiveDimensions() {
     }
   });
 }
+
+async function mergeProsodyAndAffect() {
+  return new Promise(async (resolve, reject) => {
+    pathsObject.paralanguageJSONPath = newFile(
+      pathsObject.audioFilePath,
+      "_paralanguage",
+      ".json",
+    );
+    const command = `python3 ./merge_prosody_and_affect.py ${pathsObject.prosodyJSONPath} ${pathsObject.affectJSONPath} ${pathsObject.paralanguageJSONPath}`;
+    updateSpinner(outputMessage("Merging prosody and emotions...", "Python"));
+    try {
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(
+            outputMessage("Prosody and emotions have been merged!", "Python"),
+          );
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
+  });
+}
+
 async function generateCaptionFile() {
-  console.log(outputMessage(`Speech metrics: Prosody`));
+  console.log(outputMessage(`Generate Caption File`));
+  if (pathsObject.prosodyJSONPath !== "" && pathsObject.affectJSONPath !== "") {
+    await mergeProsodyAndAffect();
+  }
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 async function generateCaptionedVideo() {
