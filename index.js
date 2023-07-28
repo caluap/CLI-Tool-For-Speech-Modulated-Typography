@@ -324,8 +324,10 @@ async function generateCaptionFile() {
       reject(error);
     }
 
-    pathsObject.finalWebVTT = path.parse(
-      newFile(pathsObject.audioFilePath, "", ".vtt"),
+    pathsObject.finalWebVTT = newFile(
+      pathsObject.audioFilePath,
+      "_caption",
+      ".vtt",
     );
 
     const command = `python3 ./generate_caption_file.py ${pathsObject.paralanguageJSONPath} ${pathsObject.finalWebVTT}`;
