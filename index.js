@@ -102,17 +102,24 @@ function newFile(pathObject, suffix, extension = null) {
   });
 }
 
+async function readFilename(prompt) {
+  const answers = await inquirer.prompt({
+    name: "path",
+    type: "input",
+    message: prompt,
+  });
+  return getFilenameRoot(path.normalize(answers.path));
+}
+
 function extractAudio(audioFilePath) {
   return new Promise(async (resolve, reject) => {
-    if (!pathsObject.audioFilePath && audioFilePath === "") {
-      const answers = await inquirer.prompt({
-        name: "path",
-        type: "input",
-        message: "From what file should we pull the speech from?",
-      });
-      pathsObject.audioFilePath = getFilenameRoot(path.normalize(answers.path));
-    } else if (audioFilePath !== "") {
-      pathsObject.audioFilePath = audioFilePath;
+    if (!pathsObject.audioFilePath) {
+      pathsObject.audioFilePath =
+        audioFilePath !== ""
+          ? audioFilePath
+          : await readFilename(
+              "From what file should we pull the speech from?",
+            );
     }
 
     if (!fs.existsSync(path.format(pathsObject.audioFilePath))) {
@@ -293,10 +300,61 @@ async function mergeProsodyAndAffect() {
 }
 
 async function generateCaptionFile() {
-  console.log(outputMessage(`Generate Caption File`));
-  if (pathsObject.prosodyJSONPath !== "" && pathsObject.affectJSONPath !== "") {
-    await mergeProsodyAndAffect();
-  }
+  return new Promise(async (resolve, reject) => {
+    console.log(outputMessage(`Generate Caption File`));
+
+    if (
+      pathsObject.prosodyJSONPath !== "" &&
+      pathsObject.affectJSONPath !== ""
+    ) {
+      await mergeProsodyAndAffect();
+    } else if (pathsObject.prosodyJSONPath !== "") {
+      // do we only have a prosody file?
+      pathsObject.paralanguageJSONPath = pathsObject.prosodyJSONPath;
+    } else if (pathsObject.affectJSONPath !== "") {
+      // do we only have an affect file?
+      pathsObject.paralanguageJSONPath = pathsObject.affectJSONPath;
+    } else {
+      // don't we have any file??
+      console.log(
+        `${chalk.bgRed.white(
+          " ERROR: ",
+        )} No source paralanguage file (Prosody or Affect).`,
+      );
+      reject(error);
+    }
+
+    pathsObject.finalWebVTT = path.parse(
+      newFile(pathsObject.audioFilePath, "", ".vtt"),
+    );
+
+    const command = `python3 ./generate_caption_file.py ${pathsObject.paralanguageJSONPath} ${pathsObject.finalWebVTT}`;
+    updateSpinner(
+      outputMessage("Preparing caption file (WebVTT)...", "Python"),
+    );
+    try {
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(
+            outputMessage(
+              "The WebVTT caption file has been created!",
+              "Python",
+            ),
+          );
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
+  });
+
   console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
 }
 async function generateCaptionedVideo() {
