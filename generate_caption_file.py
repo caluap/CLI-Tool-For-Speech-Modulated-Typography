@@ -2,35 +2,21 @@ import json
 import sys
 
 class_mapping = {
-    "pred_arousal": "raro",
-    "pred_dominance": "rdom",
-    "pred_valence": "rval",
-    "pred_arousal_norm": "arou",
-    "pred_dominance_norm": "domi",
-    "pred_valence_norm": "vale"
+    "pred_arousal": "v_arou",
+    "pred_dominance": "v_domi",
+    "pred_valence": "v_vale",
+    "pred_arousal_norm": "v_naro",
+    "pred_dominance_norm": "v_ndom",
+    "pred_valence_norm": "v_nval"
 }
 
 def format_time(time):
-    # Split the time string into hours, minutes, seconds, and milliseconds
-    time_parts = time.split(":")
-    hours = int(time_parts[0])
-    minutes = int(time_parts[1])
-    seconds_ms = time_parts[2].split(",")
-    seconds = int(seconds_ms[0])
-    milliseconds = int(seconds_ms[1])
-
-    # Convert time to milliseconds
-    time_ms = (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds
-
-    # Convert milliseconds to the WebVTT time format (hh:mm:ss.sss)
-    hours = time_ms // 3600000
-    time_ms %= 3600000
-    minutes = time_ms // 60000
-    time_ms %= 60000
-    seconds = time_ms // 1000
-    milliseconds = time_ms % 1000
-
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+    time = float(time)
+    hours = int(time) // 3600
+    minutes = int(time) % 3600 // 60
+    seconds = int(time) % 60
+    milliseconds = int((time % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
 
 def format_class_value(class_name, value):
     # Convert the numerical value to the class format (e.g., 0.5050724744796753 to '0p505')
