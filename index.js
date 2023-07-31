@@ -9,12 +9,14 @@ import path from "path";
 
 let spinner = null;
 
-const whisperPath = `/Users/calua/repositorios/whisper/whisper.cpp`;
+const whisperPath = `/Users/calua/repositorios/whisper/whisper.cpp`,
+  gentlePath = `/Users/calua/repositorios/gentle/`;
 
 const pathsObject = {
   audioFilePath: "",
   rectifiedAudioFilePath: "",
   rawTranscriptionPath: "",
+  syncedTranscriptionPath: "",
   preparedTranscriptionPath: "",
   prosodyJSONPath: "",
   affectJSONPath: "",
@@ -62,6 +64,7 @@ async function moduleCalls() {
     switch (option) {
       case "Audio Transcription":
         await audioTranscription();
+        await syncTranscription();
         await fixTranscriptionPunctuation();
         break;
       case "Speech metrics: Prosody":
@@ -175,7 +178,7 @@ async function audioTranscription(audioFilePath = "") {
 
     const command = `${whisperPath}/main -m ${whisperPath}/models/ggml-large.bin -f ${path.format(
       pathsObject.rectifiedAudioFilePath,
-    )} --max-len 1 -oj -ovtt -of ${transcriptionPath}`;
+    )} -otxt -of ${transcriptionPath}`;
 
     updateSpinner(outputMessage("Generating transcript...", "Whisper"));
 
@@ -190,7 +193,42 @@ async function audioTranscription(audioFilePath = "") {
           finishCurrentSpinner(
             outputMessage("The transcript has been generated!", "Whisper"),
           );
-          pathsObject.rawTranscriptionPath = transcriptionPath + ".json";
+          pathsObject.rawTranscriptionPath = transcriptionPath + ".txt";
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
+  });
+}
+
+async function syncTranscription() {
+  return new Promise(async (resolve, reject) => {
+    pathsObject.syncedTranscriptionPath = newFile(
+      pathsObject.audioFilePath,
+      "_synced_transcription",
+      ".json",
+    );
+    const command = `python3 ${gentlePath}/align.py ${path.format(
+      pathsObject.rectifiedAudioFilePath,
+    )} ${pathsObject.rawTranscriptionPath} -o ${
+      pathsObject.syncedTranscriptionPath
+    }`;
+
+    updateSpinner(outputMessage("Syncing transcription...", "Gentle"));
+    try {
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(
+            outputMessage("The transcription was synced!", "Gentle"),
+          );
           resolve(); // Resolve the Promise on successful extraction
         }
       });
@@ -208,7 +246,7 @@ async function fixTranscriptionPunctuation() {
       "_transcription",
       ".json",
     );
-    const command = `python3 ./fix_transcription_punctuation.py ${pathsObject.rawTranscriptionPath} ${pathsObject.preparedTranscriptionPath}`;
+    const command = `python3 ./fix_force_aligned_transcription.py ${pathsObject.syncedTranscriptionPath} ${pathsObject.rawTranscriptionPath} ${pathsObject.preparedTranscriptionPath}`;
     updateSpinner(outputMessage("Fixing transcription...", "Python"));
     try {
       exec(command, (error, stdout, stderr) => {
