@@ -64,8 +64,6 @@ async function moduleCalls() {
     switch (option) {
       case "Audio Transcription":
         await audioTranscription();
-        await syncTranscription();
-        await fixTranscriptionPunctuation();
         break;
       case "Speech metrics: Prosody":
         await extractProsody();
@@ -176,9 +174,12 @@ async function audioTranscription(audioFilePath = "") {
         pathsObject.rectifiedAudioFilePath.name,
     );
 
-    const command = `${whisperPath}/main -m ${whisperPath}/models/ggml-large.bin -f ${path.format(
+    // transcribes and renames
+    const command = `whisper_timestamped ${path.format(
       pathsObject.rectifiedAudioFilePath,
-    )} -otxt -of ${transcriptionPath}`;
+    )} --model large --language en --output_format json --output_dir ./ && mv ${path.format(
+      pathsObject.rectifiedAudioFilePath,
+    )}.words.json ${transcriptionPath}.json`;
 
     updateSpinner(outputMessage("Generating transcript...", "Whisper"));
 
@@ -193,72 +194,7 @@ async function audioTranscription(audioFilePath = "") {
           finishCurrentSpinner(
             outputMessage("The transcript has been generated!", "Whisper"),
           );
-          pathsObject.rawTranscriptionPath = transcriptionPath + ".txt";
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
-}
-
-async function syncTranscription() {
-  return new Promise(async (resolve, reject) => {
-    pathsObject.syncedTranscriptionPath = newFile(
-      pathsObject.audioFilePath,
-      "_synced_transcription",
-      ".json",
-    );
-    const command = `python3 ${gentlePath}/align.py ${path.format(
-      pathsObject.rectifiedAudioFilePath,
-    )} ${pathsObject.rawTranscriptionPath} -o ${
-      pathsObject.syncedTranscriptionPath
-    }`;
-
-    updateSpinner(outputMessage("Syncing transcription...", "Gentle"));
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("The transcription was synced!", "Gentle"),
-          );
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
-}
-
-async function fixTranscriptionPunctuation() {
-  return new Promise(async (resolve, reject) => {
-    pathsObject.preparedTranscriptionPath = newFile(
-      pathsObject.audioFilePath,
-      "_transcription",
-      ".json",
-    );
-    const command = `python3 ./fix_force_aligned_transcription.py ${pathsObject.syncedTranscriptionPath} ${pathsObject.rawTranscriptionPath} ${pathsObject.preparedTranscriptionPath}`;
-    updateSpinner(outputMessage("Fixing transcription...", "Python"));
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("The transcription has been fixed!", "Python"),
-          );
+          pathsObject.rawTranscriptionPath = transcriptionPath + ".json";
           resolve(); // Resolve the Promise on successful extraction
         }
       });
@@ -284,7 +220,7 @@ async function extractAffectiveDimensions() {
     );
     const command = `python3 ./affect_extraction.py ${path.format(
       pathsObject.rectifiedAudioFilePath,
-    )} ${pathsObject.preparedTranscriptionPath} ${pathsObject.affectJSONPath}`;
+    )} ${pathsObject.rawTranscriptionPath} ${pathsObject.affectJSONPath}`;
     updateSpinner(outputMessage("Figuring out emotions...", "Python"));
     try {
       exec(command, (error, stdout, stderr) => {
