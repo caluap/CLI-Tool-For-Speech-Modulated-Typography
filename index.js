@@ -227,7 +227,7 @@ async function extractProsody() {
         } else {
           // The command completed successfully.
           finishCurrentSpinner(
-            outputMessage("Prosody have been figured out!", "Python"),
+            outputMessage("Prosody has been figured out!", "Python"),
           );
           resolve(); // Resolve the Promise on successful extraction
         }
