@@ -3,6 +3,11 @@ import json
 import parselmouth
 from parselmouth.praat import call
 
+# needs a pip install py3-tts to work on macos ventura
+import pyttsx3
+
+import librosa
+
 praat_executable = "/Applications/Praat.app/Contents/MacOS/Praat"
 praat_script = "./syllablenuclei_v3.praat"
 
@@ -25,8 +30,11 @@ def process_json(json_file_path):
     return transcriptions
 
 def main(input_wav_file, input_json_file, output_json_file):
+
+    
     transcriptions = process_json(input_json_file)
 
+    engine = pyttsx3.init(driverName='nsss')
     sound = parselmouth.Sound(input_wav_file)
 
     prosodic_values = []
@@ -44,7 +52,16 @@ def main(input_wav_file, input_json_file, output_json_file):
         pitch = call(pitch_obj, "Get mean", word["start"], word["end"], "Hertz")
         sliced_audio = sound.extract_part(from_time=word["start"], to_time=word["end"])
         loudness = call(sliced_audio, "Get intensity (dB)")
-        duration = word["end"] - word["start"]
+        raw_duration = word["end"] - word["start"]
+    
+        engine.save_to_file(word["text"], 'temp.wav')
+        engine.runAndWait()
+
+        tts_duration = librosa.get_duration(filename='temp.wav')
+        if tts_duration == 0:
+            duration = 0
+        else:
+            duration = raw_duration / tts_duration
 
         if pitch > max_pitch:
             max_pitch = pitch
@@ -66,13 +83,14 @@ def main(input_wav_file, input_json_file, output_json_file):
             'text': word["text"],
             'raw_loudness': loudness,
             'raw_pitch': pitch,
-            'raw_duration': duration
+            'raw_duration': raw_duration,
+            'ratio_duration': duration
         })
 
     for prosodic_value in prosodic_values:
         prosodic_value['loudness'] = (prosodic_value['raw_loudness'] - min_loud) / (max_loud - min_loud)
         prosodic_value['pitch'] = (prosodic_value['raw_pitch'] - min_pitch) / (max_pitch - min_pitch)
-        prosodic_value['duration'] = (prosodic_value['raw_duration'] - min_duration) / (max_duration - min_duration)
+        prosodic_value['duration'] = (prosodic_value['ratio_duration'] - min_duration) / (max_duration - min_duration)
 
     with open(output_json_file, 'w') as output_file:
         json.dump(prosodic_values, output_file, indent=2)
