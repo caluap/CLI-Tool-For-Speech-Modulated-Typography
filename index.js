@@ -207,7 +207,36 @@ async function audioTranscription(audioFilePath = "") {
 
 async function extractProsody() {
   console.log(outputMessage(`Speech metrics: Prosody`));
-  console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
+
+  return new Promise(async (resolve, reject) => {
+    pathsObject.prosodyJSONPath = newFile(
+      pathsObject.audioFilePath,
+      "_prosody",
+      ".json",
+    );
+    const command = `python3 ./prosodic_extraction.py ${path.format(
+      pathsObject.rectifiedAudioFilePath,
+    )} ${pathsObject.rawTranscriptionPath} ${pathsObject.prosodyJSONPath}`;
+    updateSpinner(outputMessage("Figuring out prosody...", "Python"));
+    try {
+      exec(command, (error, stdout, stderr) => {
+        // This function is the callback that will be executed after the command finishes.
+        if (error) {
+          // Handle any errors that occurred during the command execution.
+          console.error("Error executing command:", error);
+        } else {
+          // The command completed successfully.
+          finishCurrentSpinner(
+            outputMessage("Prosody have been figured out!", "Python"),
+          );
+          resolve(); // Resolve the Promise on successful extraction
+        }
+      });
+    } catch (error) {
+      console.error("Error occurred:", error);
+      reject(error); // Reject the Promise on error
+    }
+  });
 }
 async function extractAffectiveDimensions() {
   console.log(outputMessage(`Speech metrics: Valence, Arousal, Dominance`));
