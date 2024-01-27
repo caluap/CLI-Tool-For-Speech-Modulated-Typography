@@ -37,11 +37,14 @@ def main(input_wav_file, input_json_file, output_json_file):
     min_pitch = float("inf")
     max_loud = -1
     min_loud = float("inf")
+    max_duration = -1
+    min_duration = float("inf")
 
     for word in transcriptions:
         pitch = call(pitch_obj, "Get mean", word["start"], word["end"], "Hertz")
         sliced_audio = sound.extract_part(from_time=word["start"], to_time=word["end"])
         loudness = call(sliced_audio, "Get intensity (dB)")
+        duration = word["end"] - word["start"]
 
         if pitch > max_pitch:
             max_pitch = pitch
@@ -51,6 +54,11 @@ def main(input_wav_file, input_json_file, output_json_file):
             max_loud = loudness
         if loudness < min_loud:
             min_loud = loudness
+        if duration > max_duration:
+            max_duration = duration
+        if duration < min_duration:
+            min_duration = duration
+        
         
         prosodic_values.append({
             'from_time': word["start"],
@@ -58,12 +66,13 @@ def main(input_wav_file, input_json_file, output_json_file):
             'text': word["text"],
             'raw_loudness': loudness,
             'raw_pitch': pitch,
-            'rhythm': 'todo'
+            'raw_duration': duration
         })
 
     for prosodic_value in prosodic_values:
         prosodic_value['loudness'] = (prosodic_value['raw_loudness'] - min_loud) / (max_loud - min_loud)
         prosodic_value['pitch'] = (prosodic_value['raw_pitch'] - min_pitch) / (max_pitch - min_pitch)
+        prosodic_value['duration'] = (prosodic_value['raw_duration'] - min_duration) / (max_duration - min_duration)
 
     with open(output_json_file, 'w') as output_file:
         json.dump(prosodic_values, output_file, indent=2)
