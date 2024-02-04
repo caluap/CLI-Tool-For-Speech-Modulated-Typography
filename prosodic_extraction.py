@@ -2,6 +2,7 @@ import argparse
 import json
 import parselmouth
 from parselmouth.praat import call
+import numpy as np
 
 # needs a pip install py3-tts to work on macos ventura
 import pyttsx3
@@ -41,13 +42,6 @@ def main(input_wav_file, input_json_file, output_json_file):
 
     pitch_obj = sound.to_pitch()
 
-    max_pitch = -1
-    min_pitch = float("inf")
-    max_loud = -1
-    min_loud = float("inf")
-    max_duration = -1
-    min_duration = float("inf")
-
     for word in transcriptions:
         pitch = call(pitch_obj, "Get mean", word["start"], word["end"], "Hertz")
         sliced_audio = sound.extract_part(from_time=word["start"], to_time=word["end"])
@@ -63,18 +57,6 @@ def main(input_wav_file, input_json_file, output_json_file):
         else:
             duration = raw_duration / tts_duration
 
-        if pitch > max_pitch:
-            max_pitch = pitch
-        if pitch < min_pitch:
-            min_pitch = pitch
-        if loudness > max_loud:
-            max_loud = loudness
-        if loudness < min_loud:
-            min_loud = loudness
-        if duration > max_duration:
-            max_duration = duration
-        if duration < min_duration:
-            min_duration = duration
         
         
         prosodic_values.append({
@@ -87,10 +69,48 @@ def main(input_wav_file, input_json_file, output_json_file):
             'ratio_duration': duration
         })
 
+    clipping_distance = 2
+
+    mean_loudness = np.mean([prosodic_value['raw_loudness'] for prosodic_value in prosodic_values])
+    std_dev_loudness = np.std([prosodic_value['raw_loudness'] for prosodic_value in prosodic_values])
+    max_loudness = mean_loudness + clipping_distance * std_dev_loudness
+    min_loudness = mean_loudness - clipping_distance * std_dev_loudness
+
+    mean_pitch = np.mean([prosodic_value['raw_pitch'] for prosodic_value in prosodic_values])
+    std_dev_pitch = np.std([prosodic_value['raw_pitch'] for prosodic_value in prosodic_values])
+    max_pitch = mean_pitch + clipping_distance * std_dev_pitch
+    min_pitch = mean_pitch - clipping_distance * std_dev_pitch
+
+    mean_duration = np.mean([prosodic_value['ratio_duration'] for prosodic_value in prosodic_values])
+    std_dev_duration = np.std([prosodic_value['ratio_duration'] for prosodic_value in prosodic_values])
+    max_duration = mean_duration + clipping_distance * std_dev_duration
+    min_duration = mean_duration - clipping_distance * std_dev_duration
+
+    # normalization
     for prosodic_value in prosodic_values:
-        prosodic_value['loudness'] = (prosodic_value['raw_loudness'] - min_loud) / (max_loud - min_loud)
-        prosodic_value['pitch'] = (prosodic_value['raw_pitch'] - min_pitch) / (max_pitch - min_pitch)
-        prosodic_value['duration'] = (prosodic_value['ratio_duration'] - min_duration) / (max_duration - min_duration)
+        if prosodic_value['raw_loudness'] > max_loudness:
+            loudness = max_loudness
+        elif prosodic_value['raw_loudness'] < min_loudness:
+            loudness = min_loudness
+        else:
+            loudness = prosodic_value['raw_loudness']
+        prosodic_value['loudness'] = (loudness - min_loudness) / (max_loudness - min_loudness)
+        
+        if prosodic_value['raw_pitch'] > max_pitch:
+            pitch = max_pitch
+        elif prosodic_value['raw_pitch'] < min_pitch:
+            pitch = min_pitch
+        else:
+            pitch = prosodic_value['raw_pitch']
+        prosodic_value['pitch'] = (pitch - min_pitch) / (max_pitch - min_pitch)
+        
+        if prosodic_value['ratio_duration'] > max_duration:
+            duration = max_duration
+        elif prosodic_value['ratio_duration'] < min_duration:
+            duration = min_duration
+        else:
+            duration = prosodic_value['ratio_duration']
+        prosodic_value['duration'] = (duration - min_duration) / (max_duration - min_duration)
 
     with open(output_json_file, 'w') as output_file:
         json.dump(prosodic_values, output_file, indent=2)
