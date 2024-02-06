@@ -3,6 +3,7 @@ import json
 import parselmouth
 from parselmouth.praat import call
 import numpy as np
+import pandas as pd
 
 # needs a pip install py3-tts to work on macos ventura
 import pyttsx3
@@ -71,13 +72,17 @@ def main(input_wav_file, input_json_file, output_json_file):
 
     clipping_distance = 2
 
-    mean_loudness = np.mean([prosodic_value['raw_loudness'] for prosodic_value in prosodic_values])
-    std_dev_loudness = np.std([prosodic_value['raw_loudness'] for prosodic_value in prosodic_values])
+    # interpolates missing values for loudness and pitch
+    interpolated_loudness = pd.Series([prosodic_value['raw_loudness'] for prosodic_value in prosodic_values]).interpolate().tolist()
+    interpolated_pitch = pd.Series([prosodic_value['raw_pitch'] for prosodic_value in prosodic_values]).interpolate().tolist()
+
+    mean_loudness = np.mean(interpolated_loudness)
+    std_dev_loudness = np.std(interpolated_loudness)
     max_loudness = mean_loudness + clipping_distance * std_dev_loudness
     min_loudness = mean_loudness - clipping_distance * std_dev_loudness
 
-    mean_pitch = np.mean([prosodic_value['raw_pitch'] for prosodic_value in prosodic_values])
-    std_dev_pitch = np.std([prosodic_value['raw_pitch'] for prosodic_value in prosodic_values])
+    mean_pitch = np.mean(interpolated_pitch)
+    std_dev_pitch = np.std(interpolated_pitch)
     max_pitch = mean_pitch + clipping_distance * std_dev_pitch
     min_pitch = mean_pitch - clipping_distance * std_dev_pitch
 
@@ -87,21 +92,21 @@ def main(input_wav_file, input_json_file, output_json_file):
     min_duration = mean_duration - clipping_distance * std_dev_duration
 
     # normalization
-    for prosodic_value in prosodic_values:
-        if prosodic_value['raw_loudness'] > max_loudness:
+    for i, prosodic_value in enumerate(prosodic_values):
+        if interpolated_loudness[i] > max_loudness:
             loudness = max_loudness
-        elif prosodic_value['raw_loudness'] < min_loudness:
+        elif interpolated_loudness[i] < min_loudness:
             loudness = min_loudness
         else:
-            loudness = prosodic_value['raw_loudness']
+            loudness = interpolated_loudness[i]
         prosodic_value['loudness'] = (loudness - min_loudness) / (max_loudness - min_loudness)
         
-        if prosodic_value['raw_pitch'] > max_pitch:
+        if interpolated_pitch[i] > max_pitch:
             pitch = max_pitch
-        elif prosodic_value['raw_pitch'] < min_pitch:
+        elif interpolated_pitch[i] < min_pitch:
             pitch = min_pitch
         else:
-            pitch = prosodic_value['raw_pitch']
+            pitch = interpolated_pitch[i]
         prosodic_value['pitch'] = (pitch - min_pitch) / (max_pitch - min_pitch)
         
         if prosodic_value['ratio_duration'] > max_duration:
