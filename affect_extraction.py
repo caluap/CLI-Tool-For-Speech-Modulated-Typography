@@ -93,19 +93,19 @@ def process_json(json_file_path):
         data = json.load(json_file)
 
     transcriptions = []
-    for item in data:
-        from_time = item['timestamps']['from']
-        to_time = item['timestamps']['to']
-        from_offset = item['offsets']['from']
-        to_offset = item['offsets']['to']
-        text = item['text']
 
-        transcriptions.append((from_time, to_time, from_offset, to_offset, text))
+    for segment in data["segments"]:
+        for word in segment["words"]:
+            transcriptions.append({
+                "text": word["text"],
+                "start": word["start"],
+                "end": word["end"]
+            })
 
     return transcriptions
 
 # Updated function to extract prosodic values from multiple timestamped transcriptions
-def extract_affective_avlues(wav_file_path, json_file_path):
+def extract_affective_values(wav_file_path, json_file_path):
     global interface
 
     audio_signal, sampling_rate = load_wav(wav_file_path)
@@ -114,12 +114,13 @@ def extract_affective_avlues(wav_file_path, json_file_path):
 
     affective_values = []
     window_size = 6
+    desired_duration = window_size * sampling_rate
 
-    for from_time, to_time, from_offset, to_offset, text in transcriptions:
-        sample_from = int(from_offset / 1000 * sampling_rate)
-        sample_to = int(to_offset / 1000 * sampling_rate)
+    for word in transcriptions:
+        print(word)
+        sample_from = int(word["start"] * sampling_rate)
+        sample_to = int(word["end"] * sampling_rate)
         word_duration = sample_to - sample_from
-        desired_duration = window_size * sampling_rate
         offset = (desired_duration - word_duration) / 2
 
         start = int(max(0, sample_from - offset))
@@ -143,9 +144,9 @@ def extract_affective_avlues(wav_file_path, json_file_path):
             dominance = output["dominance"][0]
 
         affective_values.append({
-            'from_time': from_time,
-            'to_time': to_time,
-            'text': text,
+            'from_time': word["start"],
+            'to_time': word["end"],
+            'text': word["text"],
             'pred_valence': valence,
             'pred_arousal': arousal,
             'pred_dominance': dominance,
@@ -156,7 +157,7 @@ def extract_affective_avlues(wav_file_path, json_file_path):
 
 def main(input_wav_file, input_json_file, output_json_file):
     load_model()
-    affective_values = extract_affective_avlues(input_wav_file, input_json_file)
+    affective_values = extract_affective_values(input_wav_file, input_json_file)
 
     f = json.dumps(affective_values, cls=NumpyFloatValuesEncoder,
                    separators=(',',':'),

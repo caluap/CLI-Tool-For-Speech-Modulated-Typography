@@ -1,63 +1,18 @@
 import argparse
-import librosa
 import json
-import pyworld as pw
+import parselmouth
+from parselmouth.praat import call
 import numpy as np
+import pandas as pd
 
-# Function to load the WAV file
-def load_wav(wav_file_path):
-    audio_signal, sampling_rate = librosa.load(wav_file_path, sr=None)
-    return audio_signal, sampling_rate
+# needs a pip install py3-tts to work on macos ventura
+import pyttsx3
 
-# Function to extract the relevant audio segment
-def extract_audio_segment(audio_signal, sampling_rate, from_offset, to_offset):
-    from_sample = int(from_offset * sampling_rate)
-    to_sample = int(to_offset * sampling_rate)
-    
-    # Check if the audio segment has a valid length
-    if from_sample >= len(audio_signal) or to_sample <= from_sample:
-        return None
-    
-    # Adjust to_sample if it exceeds the length of the audio signal
-    if to_sample >= len(audio_signal):
-        to_sample = len(audio_signal) - 1
-    
-    audio_segment = audio_signal[from_sample:to_sample]
-    return audio_segment
+import librosa
 
-# Function to calculate RMS energy
-def calculate_rms_energy(audio_segment):
-    # Check if the audio_segment is valid (not empty)
-    if len(audio_segment) == 0:
-        return None
+praat_executable = "/Applications/Praat.app/Contents/MacOS/Praat"
+praat_script = "./syllablenuclei_v3.praat"
 
-    rms_energy = librosa.feature.rms(y=audio_segment)[0]
-    return rms_energy
-
-# Function to calculate MFCC energy
-def calculate_mfcc_energy(audio_segment, sampling_rate, n_mfcc=13):
-    mfccs = librosa.feature.mfcc(y=audio_segment, sr=sampling_rate, n_mfcc=n_mfcc)
-    energy = mfccs[0]
-    return energy
-
-# Function to calculate the average pitch frequency for vowel segments
-def calculate_average_pitch(audio_segment, sampling_rate):
-    # Convert audio_segment to double (64-bit) data type
-    audio_segment = audio_segment.astype(np.float64)
-
-    # Ensure the audio segment is non-empty and has a length greater than the FFT size
-    n_fft = 2048  # Adjust the value of n_fft based on your needs
-    if len(audio_segment) > 0 and len(audio_segment) >= n_fft:
-        f0, t = pw.dio(audio_segment, sampling_rate, f0_floor=50.0)  # Set f0_floor to a suitable value
-        if len(f0) > 0:
-            f0 = pw.stonemask(audio_segment, f0, t, sampling_rate)
-            average_pitch = np.mean(f0[f0 > 0])
-        else:
-            average_pitch = 0.0  # Set average pitch to 0 if no valid F0 points are found
-    else:
-        average_pitch = 0.0  # Set average pitch to 0 for empty or very short audio segments
-
-    return average_pitch
 
 # Updated function to read and process the JSON data with an array of elements
 def process_json(json_file_path):
@@ -65,66 +20,102 @@ def process_json(json_file_path):
         data = json.load(json_file)
 
     transcriptions = []
-    for item in data:
-        from_time = item['timestamps']['from']
-        to_time = item['timestamps']['to']
-        from_offset = item['offsets']['from']
-        to_offset = item['offsets']['to']
-        text = item['text']
 
-        transcriptions.append((from_time, to_time, from_offset, to_offset, text))
+    for segment in data["segments"]:
+        for word in segment["words"]:
+            transcriptions.append({
+                "text": word["text"],
+                "start": word["start"],
+                "end": word["end"]
+            })
 
     return transcriptions
 
-# Updated function to extract prosodic values from multiple timestamped transcriptions
-def extract_prosodic_values(wav_file_path, json_file_path):
-    audio_signal, sampling_rate = load_wav(wav_file_path)
-    transcriptions = process_json(json_file_path)
-
-    prosodic_values = []
-    for from_time, to_time, from_offset, to_offset, text in transcriptions:
-        audio_segment = extract_audio_segment(audio_signal, sampling_rate, from_offset, to_offset)
-        if audio_segment is None:
-          continue  # Skip processing invalid audio segments
-        rms_energy = calculate_rms_energy(audio_segment)
-        mfcc_energy = calculate_mfcc_energy(audio_segment, sampling_rate)
-        # average_pitch = calculate_average_pitch(audio_segment, sampling_rate)
-
-        prosodic_values.append({
-            'from_time': from_time,
-            'to_time': to_time,
-            'text': text,
-            'prosodic_values': {
-                'rms_energy': rms_energy.tolist(),
-                'mfcc_energy': mfcc_energy.tolist(),
-                # 'average_pitch': average_pitch
-            }
-        })
-
-    return prosodic_values
-
-
 def main(input_wav_file, input_json_file, output_json_file):
-    audio_signal, sampling_rate = load_wav(input_wav_file)
+
+    
     transcriptions = process_json(input_json_file)
 
-    prosodic_values = []
-    for from_time, to_time, from_offset, to_offset, text in transcriptions:
-        audio_segment = extract_audio_segment(audio_signal, sampling_rate, from_offset, to_offset)
-        rms_energy = calculate_rms_energy(audio_segment)
-        mfcc_energy = calculate_mfcc_energy(audio_segment, sampling_rate)
-        average_pitch = calculate_average_pitch(audio_segment, sampling_rate)
+    engine = pyttsx3.init(driverName='nsss')
+    sound = parselmouth.Sound(input_wav_file)
 
+    prosodic_values = []
+
+    pitch_obj = sound.to_pitch()
+
+    for word in transcriptions:
+        pitch = call(pitch_obj, "Get mean", word["start"], word["end"], "Hertz")
+        sliced_audio = sound.extract_part(from_time=word["start"], to_time=word["end"])
+        loudness = call(sliced_audio, "Get intensity (dB)")
+        raw_duration = word["end"] - word["start"]
+    
+        engine.save_to_file(word["text"], 'temp.wav')
+        engine.runAndWait()
+
+        tts_duration = librosa.get_duration(filename='temp.wav')
+        if tts_duration == 0:
+            duration = 0
+        else:
+            duration = raw_duration / tts_duration
+
+        
+        
         prosodic_values.append({
-            'from_time': from_time,
-            'to_time': to_time,
-            'text': text,
-            'prosodic_values': {
-                'rms_energy': rms_energy.tolist(),
-                'mfcc_energy': mfcc_energy.tolist(),
-                'average_pitch': average_pitch
-            }
+            'from_time': word["start"],
+            'to_time': word["end"],
+            'text': word["text"],
+            'raw_loudness': loudness,
+            'raw_pitch': pitch,
+            'raw_duration': raw_duration,
+            'ratio_duration': duration
         })
+
+    clipping_distance = 2
+
+    # interpolates missing values for loudness and pitch
+    interpolated_loudness = pd.Series([prosodic_value['raw_loudness'] for prosodic_value in prosodic_values]).interpolate().tolist()
+    interpolated_pitch = pd.Series([prosodic_value['raw_pitch'] for prosodic_value in prosodic_values]).interpolate().tolist()
+
+    mean_loudness = np.mean(interpolated_loudness)
+    std_dev_loudness = np.std(interpolated_loudness)
+    max_loudness = mean_loudness + clipping_distance * std_dev_loudness
+    min_loudness = mean_loudness - clipping_distance * std_dev_loudness
+
+    mean_pitch = np.mean(interpolated_pitch)
+    std_dev_pitch = np.std(interpolated_pitch)
+    max_pitch = mean_pitch + clipping_distance * std_dev_pitch
+    min_pitch = mean_pitch - clipping_distance * std_dev_pitch
+
+    mean_duration = np.mean([prosodic_value['ratio_duration'] for prosodic_value in prosodic_values])
+    std_dev_duration = np.std([prosodic_value['ratio_duration'] for prosodic_value in prosodic_values])
+    max_duration = mean_duration + clipping_distance * std_dev_duration
+    min_duration = mean_duration - clipping_distance * std_dev_duration
+
+    # normalization
+    for i, prosodic_value in enumerate(prosodic_values):
+        if interpolated_loudness[i] > max_loudness:
+            loudness = max_loudness
+        elif interpolated_loudness[i] < min_loudness:
+            loudness = min_loudness
+        else:
+            loudness = interpolated_loudness[i]
+        prosodic_value['loudness'] = (loudness - min_loudness) / (max_loudness - min_loudness)
+        
+        if interpolated_pitch[i] > max_pitch:
+            pitch = max_pitch
+        elif interpolated_pitch[i] < min_pitch:
+            pitch = min_pitch
+        else:
+            pitch = interpolated_pitch[i]
+        prosodic_value['pitch'] = (pitch - min_pitch) / (max_pitch - min_pitch)
+        
+        if prosodic_value['ratio_duration'] > max_duration:
+            duration = max_duration
+        elif prosodic_value['ratio_duration'] < min_duration:
+            duration = min_duration
+        else:
+            duration = prosodic_value['ratio_duration']
+        prosodic_value['duration'] = (duration - min_duration) / (max_duration - min_duration)
 
     with open(output_json_file, 'w') as output_file:
         json.dump(prosodic_values, output_file, indent=2)

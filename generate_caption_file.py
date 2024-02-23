@@ -7,7 +7,13 @@ class_mapping = {
     "pred_valence": "v_vale",
     "pred_arousal_norm": "v_naro",
     "pred_dominance_norm": "v_ndom",
-    "pred_valence_norm": "v_nval"
+    "pred_valence_norm": "v_nval",
+    "raw_loudness": "v_rlou",
+    "raw_pitch": "v_rpit",
+    "raw_duration": "v_rdur",
+    "loudness": "v_loud",
+    "pitch": "v_pitc",
+    "duration": "v_dura"
 }
 
 def format_time(time):
