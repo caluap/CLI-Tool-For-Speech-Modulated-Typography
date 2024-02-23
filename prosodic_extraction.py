@@ -4,6 +4,7 @@ import parselmouth
 from parselmouth.praat import call
 import numpy as np
 import pandas as pd
+import platform # for OS detection
 
 # needs a pip install py3-tts to work on macos ventura
 import pyttsx3
@@ -36,7 +37,13 @@ def main(input_wav_file, input_json_file, output_json_file):
     
     transcriptions = process_json(input_json_file)
 
-    engine = pyttsx3.init(driverName='nsss')
+    engine = None 
+    if platform.system() == 'Darwin':
+        # specific driver for macos
+        engine = pyttsx3.init(driverName='nsss')
+    else:
+        # use default driver for other OS
+        engine = pyttsx3.init()
     sound = parselmouth.Sound(input_wav_file)
 
     prosodic_values = []
@@ -52,7 +59,7 @@ def main(input_wav_file, input_json_file, output_json_file):
         engine.save_to_file(word["text"], 'temp.wav')
         engine.runAndWait()
 
-        tts_duration = librosa.get_duration(filename='temp.wav')
+        tts_duration = librosa.get_duration(path='temp.wav')
         if tts_duration == 0:
             duration = 0
         else:
