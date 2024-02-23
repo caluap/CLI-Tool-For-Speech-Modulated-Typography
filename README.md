@@ -1,7 +1,6 @@
 # Description
 
-    TODO: fill in description
-    asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdf
+This is a CLI tool to extract transcriptions, prosedic features, and generating captioned videos from media files.
 
 # Create a conda environment
 
@@ -57,14 +56,11 @@ conda activate <env-name>
       ```
 
       Verify that ffmpeg is added to path- `ffmpeg`
-- **Whisper-timestamped**
+- **Python Package Libraries**
   -------------------
 
-
-  - Start by cloning the Whisper-timestamped library:
-
   ```bash
-  pip3 install whisper-timestamped
+  pip3 install -r requirements.txt
   ```
 
 
