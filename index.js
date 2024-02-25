@@ -9,9 +9,6 @@ import path from "path";
 
 let spinner = null;
 
-const whisperPath = `/Users/calua/repositorios/whisper/whisper.cpp`,
-  gentlePath = `/Users/calua/repositorios/gentle/`;
-
 const pathsObject = {
   audioFilePath: "",
   rectifiedAudioFilePath: "",
@@ -25,7 +22,8 @@ const pathsObject = {
   typographyModulationMappingsPath: "",
 };
 
-let options;
+let options,
+  scrollingCaptions = false;
 
 const sleep = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
 
@@ -177,7 +175,7 @@ async function audioTranscription(audioFilePath = "") {
     // transcribes and renames
     const command = `whisper_timestamped ${path.format(
       pathsObject.rectifiedAudioFilePath,
-    )} --model large --language en --output_format json --vad True --output_dir ./ && mv ${path.format(
+    )} --accurate --model large --language en --output_format json --vad True --output_dir ./ && mv ${path.format(
       pathsObject.rectifiedAudioFilePath,
     )}.words.json ${transcriptionPath}.json`;
 
@@ -333,7 +331,11 @@ async function generateCaptionFile() {
       ".vtt",
     );
 
-    const command = `python3 ./generate_caption_file.py ${pathsObject.paralanguageJSONPath} ${pathsObject.finalWebVTT}`;
+    const command = `python3 ./generate_caption_file.py ${
+      pathsObject.paralanguageJSONPath
+    } ${pathsObject.finalWebVTT} ${
+      scrollingCaptions ? "" : pathsObject.rawTranscriptionPath
+    }`;
     updateSpinner(
       outputMessage("Preparing caption file (WebVTT)...", "Python"),
     );
