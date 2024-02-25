@@ -1,0 +1,10 @@
+audeer==2.0.0
+audinterface==1.1.0
+audonnx==0.7.0
+librosa==0.10.1
+numpy==1.26.4
+pandas==2.2.1
+praat-parselmouth==0.4.3
+pyttsx3==2.90
+soundfile==0.12.1
+whisper-timestamped==1.14.4

@@ -8,8 +8,11 @@ import audonnx
 import numpy as np
 import audinterface
 
-
 w2v2path = "/Users/calua/google_drive/pessoal/estudo/doutorado/Research/study2__prosody+emotion/video_selection/"
+# check if w2v2path is a valid path, if not set to current directory
+if not os.path.exists(w2v2path):
+    w2v2path = os.getcwd() + os.pathsep
+
 model_root = w2v2path + "audeer/model"
 cache_root = w2v2path + "audeer/cache"
 # model = None
