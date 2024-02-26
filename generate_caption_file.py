@@ -43,12 +43,6 @@ def normalize_data(data):
         for i, word in enumerate(data):
             word[f"{field}_norm"] = normalized_temp[i]
 
-def caption_blocks(data, raw_transcript_file):
-    with open(raw_transcript_file, 'r') as f:
-        raw_transcript = json.load(f)
-    block_data = []
-    i = 0
-
 def get_class_attribute(item, t0 = -1, t1 = -1):
     class_attributes = []
 
@@ -85,23 +79,70 @@ def scrolling_caption(data):
 
     return webvtt_content
 
+def consolidate_small_blocks(raw_transcript):
+    small_block_length = 6
+    consolidated_transcript = []
+
+    for i in range(len(raw_transcript["segments"])):
+        segment = {
+            "start": raw_transcript["segments"][i]["start"],
+            "end": raw_transcript["segments"][i]["end"],
+            "words": raw_transcript["segments"][i]["words"]
+        }
+
+        # last one, can't merge
+        if i == len(raw_transcript["segments"]) - 1:
+            consolidated_transcript.append(segment)
+            break
+
+        # If the segment isn't small, then we can't merge
+        if len(segment["words"]) > small_block_length:
+            consolidated_transcript.append(segment)
+            continue
+
+        next_segment = raw_transcript["segments"][i + 1]
+
+        # If the next segment isn't small, then we can't merge
+        if len(next_segment["words"]) > small_block_length:
+            consolidated_transcript.append(segment)
+            continue
+
+        # segment["words"][-1]["text"] += "\n"
+
+        merged_segment = {
+            "start": segment["start"],
+            "end": next_segment["end"],
+            "words": segment["words"] + next_segment["words"]
+        }
+        print("merged segment", i)
+        consolidated_transcript.append(merged_segment)
+        i += 1 # Skip the next segment
+
+    # print("consolidated_transcript", consolidated_transcript)
+    return consolidated_transcript
+
+        
+
 def block_captions(data, raw_transcript_file):
     read_time_buffer = 2
 
     # loads raw transcript file
     with open(raw_transcript_file, 'r') as f:
         raw_transcript = json.load(f)
+
+    consolidated_transcript = consolidate_small_blocks(raw_transcript)
+
     webvtt_content = "WEBVTT\n\n"
     i = 0
 
-    for j in range(len(raw_transcript["segments"])):
-        segment = raw_transcript["segments"][j]
+    for j in range(len(consolidated_transcript)):
+        segment = consolidated_transcript[j]
         start = segment["start"]
         end = segment["end"]
         duration = end - start
 
-        if j < len(raw_transcript["segments"]) - 1:
-            next_start = raw_transcript["segments"][j + 1]["start"]
+        if j < len(consolidated_transcript) - 1:
+            next_start = consolidated_transcript[j + 1]["start"]
             maximum_duration = next_start - start
             adjusted_duration = min(duration + read_time_buffer, maximum_duration)
         else:
@@ -114,7 +155,8 @@ def block_captions(data, raw_transcript_file):
         end_formatted = format_time(end)
         webvtt_content += f"{start_formatted} --> {end_formatted}\n"
 
-        for word in segment["words"]:
+        for _ in segment["words"]:
+            print(_["text"], data[i]["text"])
             item = data[i]
             t0 = item["from_time"]
             t1 = item["to_time"]
