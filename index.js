@@ -43,18 +43,27 @@ function finishCurrentSpinner(message) {
 }
 
 async function moduleSelection() {
-  options = await inquirer.prompt({
-    name: "selectedModules",
-    type: "checkbox",
-    message: chalk.greenBright(` What modules do you want to run? `),
-    choices: [
-      { value: "Audio Transcription" },
-      { value: "Speech metrics: Prosody" },
-      { value: "Speech metrics: Valence, Arousal, Dominance" },
-      { value: "Generate Caption File" },
-      { value: "Generate Captioned Video" },
-    ],
-  });
+  options = await inquirer.prompt([
+    {
+      name: "selectedModules",
+      type: "checkbox",
+      message: chalk.greenBright("What modules do you want to run?"),
+      choices: [
+        { value: "Audio Transcription" },
+        { value: "Speech metrics: Prosody" },
+        { value: "Speech metrics: Valence, Arousal, Dominance" },
+        { value: "Generate Caption File" },
+        { value: "Generate Captioned Video" },
+      ],
+    },
+    {
+      name: "captionStyle",
+      type: "list",
+      message: chalk.greenBright("Do you want scrolling or block captions?"),
+      choices: ["Scrolling captions", "Block captions"],
+    },
+  ]);
+  scrollingCaptions = options.captionStyle === "Scrolling captions";
 }
 
 async function moduleCalls() {
