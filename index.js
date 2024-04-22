@@ -182,9 +182,10 @@ async function audioTranscription(audioFilePath = "") {
     );
 
     // transcribes and renames
+    const model = `large`;
     const command = `whisper_timestamped ${path.format(
       pathsObject.rectifiedAudioFilePath,
-    )} --model large --language en --output_format json --vad True --output_dir ./ && mv ${path.format(
+    )} --model ${model} --language en --output_format json --vad True --output_dir ./ && mv ${path.format(
       pathsObject.rectifiedAudioFilePath,
     )}.words.json ${transcriptionPath}.json`;
 
