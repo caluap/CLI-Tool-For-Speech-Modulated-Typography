@@ -142,9 +142,7 @@ function extractAudio(audioFilePath) {
 
     const command = `ffmpeg -y -i "${path.format(
       pathsObject.audioFilePath,
-    )}" -vn -ac 1 -ar 16000 "${path.format(
-      pathsObject.rectifiedAudioFilePath,
-    )}";`;
+    )}" -vn -ac 1 "${path.format(pathsObject.rectifiedAudioFilePath)}";`;
 
     updateSpinner(outputMessage("Extracting audio...", "FFmpeg"));
 
