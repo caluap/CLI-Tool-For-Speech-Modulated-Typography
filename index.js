@@ -23,6 +23,7 @@ const pathsObject = {
 };
 
 let options,
+  language = `English`,
   scrollingCaptions = false;
 
 const sleep = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
@@ -62,8 +63,15 @@ async function moduleSelection() {
       message: chalk.greenBright("Do you want scrolling or block captions?"),
       choices: ["Scrolling captions", "Block captions"],
     },
+    {
+      name: "language",
+      type: "list",
+      message: chalk.greenBright("What is language do the characters speak?"),
+      choices: ["English", "Korean"],
+    },
   ]);
   scrollingCaptions = options.captionStyle === "Scrolling captions";
+  language = options.language;
 }
 
 async function moduleCalls() {
@@ -183,7 +191,7 @@ async function audioTranscription(audioFilePath = "") {
     const model = `large`;
     const command = `whisper_timestamped ${path.format(
       pathsObject.rectifiedAudioFilePath,
-    )} --model ${model} --language en --output_format json --vad True --output_dir ./ && mv ${path.format(
+    )} --model ${model} --language ${language} --output_format json --vad True --output_dir ./ && mv ${path.format(
       pathsObject.rectifiedAudioFilePath,
     )}.words.json ${transcriptionPath}.json`;
 
