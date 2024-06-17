@@ -39,7 +39,10 @@ def normalize_data(data):
         temp = [word[field] for word in data]
         min_value = min(temp)
         max_value = max(temp)
-        normalized_temp = [(x - min_value) / (max_value - min_value) for x in temp]
+        if max_value - min_value == 0:
+            normalized_temp = [0 for x in temp]
+        else:
+            normalized_temp = [(x - min_value) / (max_value - min_value) for x in temp]
         for i, word in enumerate(data):
             word[f"{field}_norm"] = normalized_temp[i]
 
