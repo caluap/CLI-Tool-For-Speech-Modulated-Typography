@@ -1,180 +1,481 @@
 import argparse
-import soundfile as sf
 import json
-
 import os
+from pathlib import Path
+
 import audeer
+import audinterface
 import audonnx
 import numpy as np
-import audinterface
+import soundfile as sf
 
-w2v2path = "/Users/calua/google_drive/pessoal/estudo/doutorado/Research/study2__prosody+emotion/video_selection/"
-# check if w2v2path is a valid path, if not set to current directory
-if not os.path.exists(w2v2path):
-    w2v2path = os.getcwd() + os.pathsep
 
-model_root = w2v2path + "audeer/model"
-cache_root = w2v2path + "audeer/cache"
-# model = None
-# signal = None
+# ---------------------------------------------------------------------
+# Model paths
+# ---------------------------------------------------------------------
+
+W2V2_PATH = Path(
+    "/Users/calua/google_drive/pessoal/estudo/doutorado/"
+    "Research/study2__prosody+emotion/video_selection"
+)
+
+# Use the current working directory when the original model directory
+# is not available.
+if not W2V2_PATH.exists():
+    W2V2_PATH = Path.cwd()
+
+MODEL_ROOT = W2V2_PATH / "audeer" / "model"
+CACHE_ROOT = W2V2_PATH / "audeer" / "cache"
+
+MODEL_URL = (
+    "https://zenodo.org/record/6221127/files/"
+    "w2v2-L-robust-12.6bc4a7fd-1.1.0.zip"
+)
+
 interface = None
 
-class NumpyFloatValuesEncoder(json.JSONEncoder):
+
+class NumpyValuesEncoder(json.JSONEncoder):
+    """
+    Converts NumPy values into types supported by JSON.
+    """
+
     def default(self, obj):
-        if isinstance(obj, np.float32):
+        if isinstance(obj, np.floating):
             return float(obj)
-        return JSONEncoder.default(self, obj)
+
+        if isinstance(obj, np.integer):
+            return int(obj)
+
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+
+        return super().default(obj)
+
 
 def load_model():
+    """
+    Downloads, loads, and prepares the wav2vec affect model.
+    """
+
     global interface
-    audeer.mkdir(cache_root)
 
-    url = 'https://zenodo.org/record/6221127/files/w2v2-L-robust-12.6bc4a7fd-1.1.0.zip'
-    dst_path = os.path.join(cache_root, 'model.zip')
+    audeer.mkdir(str(CACHE_ROOT))
 
-    if not os.path.exists(dst_path):
+    archive_path = CACHE_ROOT / "model.zip"
+
+    if not archive_path.exists():
+        print("Downloading affect model...")
+
         audeer.download_url(
-            url, 
-            dst_path, 
-            verbose=True,
-        )
-        
-    if not os.path.exists(model_root):
-        audeer.extract_archive(
-            dst_path, 
-            model_root, 
+            MODEL_URL,
+            str(archive_path),
             verbose=True,
         )
 
-    model = audonnx.load(model_root)
+    if not MODEL_ROOT.exists():
+        print("Extracting affect model...")
+
+        audeer.extract_archive(
+            str(archive_path),
+            str(MODEL_ROOT),
+            verbose=True,
+        )
+
+    print(f"Loading affect model from: {MODEL_ROOT}")
+
+    model = audonnx.load(str(MODEL_ROOT))
+
     np.random.seed(0)
 
     sampling_rate = 16000
-    signal = np.random.normal(
+
+    test_signal = np.random.normal(
         size=sampling_rate,
     ).astype(np.float32)
 
-    model(signal, sampling_rate)
+    # Perform one test call to initialise the model.
+    model(
+        test_signal,
+        sampling_rate,
+        outputs="logits",
+    )
 
     interface = audinterface.Feature(
-        model.outputs['logits'].labels,
+        model.outputs["logits"].labels,
         process_func=model,
         process_func_args={
-            'output_names': 'logits',
+            # "output_names" was deprecated.
+            "outputs": "logits",
         },
         sampling_rate=sampling_rate,
         resample=True,
-        verbose=True,
+        verbose=False,
     )
 
-    t = interface.process_signal(signal, sampling_rate)
-    print(t)
+    print("Affect model loaded successfully.")
 
 
-# Function to load the WAV file
 def load_wav(wav_file_path):
-    audio_signal, sampling_rate = sf.read(wav_file_path)
+    """
+    Loads a WAV file and returns a mono float32 signal and its
+    sampling rate.
+    """
+
+    audio_signal, sampling_rate = sf.read(
+        wav_file_path,
+        dtype="float32",
+    )
+
+    audio_signal = np.asarray(
+        audio_signal,
+        dtype=np.float32,
+    )
+
+    # Handle stereo or multi-channel input by averaging the channels.
+    if audio_signal.ndim > 1:
+        audio_signal = np.mean(
+            audio_signal,
+            axis=1,
+            dtype=np.float32,
+        )
+
     return audio_signal, sampling_rate
 
-# Function to extract the relevant audio segment
-def extract_audio_segment(audio_signal, sampling_rate, from_offset, to_offset):
-    
-    # Check if the audio segment has a valid length
+
+def extract_audio_segment(
+    audio_signal,
+    from_offset,
+    to_offset,
+):
+    """
+    Extracts a segment from an audio signal using sample positions.
+    """
+
+    from_offset = max(0, int(from_offset))
+    to_offset = min(
+        len(audio_signal),
+        int(to_offset),
+    )
+
     if from_offset >= len(audio_signal):
         return None
-    
-    # Adjust to_sample if it exceeds the length of the audio signal
-    if to_offset >= len(audio_signal):
-        to_offset = len(audio_signal) - 1
-    
-    audio_segment = audio_signal[from_offset:to_offset]
-    return audio_segment
 
-# Updated function to read and process the JSON data with an array of elements
+    if to_offset <= from_offset:
+        return None
+
+    return audio_signal[from_offset:to_offset]
+
+
 def process_json(json_file_path):
-    with open(json_file_path, 'r') as json_file:
+    """
+    Reads timestamped words from the Whisper JSON file.
+    """
+
+    with open(
+        json_file_path,
+        "r",
+        encoding="utf-8",
+    ) as json_file:
         data = json.load(json_file)
+
+    if "segments" not in data:
+        raise KeyError(
+            "The transcription JSON does not contain a "
+            "'segments' property."
+        )
 
     transcriptions = []
 
     for segment in data["segments"]:
-        for word in segment["words"]:
-            transcriptions.append({
-                "text": word["text"],
-                "start": word["start"],
-                "end": word["end"]
-            })
+        words = segment.get("words", [])
+
+        for word in words:
+            if not all(
+                key in word
+                for key in ("text", "start", "end")
+            ):
+                print(
+                    "Skipping malformed word entry:",
+                    word,
+                )
+                continue
+
+            transcriptions.append(
+                {
+                    "text": word["text"],
+                    "start": float(word["start"]),
+                    "end": float(word["end"]),
+                }
+            )
 
     return transcriptions
 
-# Updated function to extract prosodic values from multiple timestamped transcriptions
-def extract_affective_values(wav_file_path, json_file_path):
-    global interface
 
-    audio_signal, sampling_rate = load_wav(wav_file_path)
-    np_wav = np.array(audio_signal,dtype=np.float32)
-    transcriptions = process_json(json_file_path)
+def get_affect_prediction(
+    audio_segment,
+    sampling_rate,
+):
+    """
+    Processes one audio segment and returns its valence,
+    arousal, and dominance predictions.
+    """
+
+    if interface is None:
+        raise RuntimeError(
+            "The affect model interface has not been loaded."
+        )
+
+    output = interface.process_signal(
+        audio_segment,
+        sampling_rate,
+    )
+
+    if output.empty:
+        raise RuntimeError(
+            "The affect model returned an empty result."
+        )
+
+    # The model output is a pandas DataFrame with a time-based
+    # MultiIndex. Therefore:
+    #
+    #     output["valence"][0]
+    #
+    # incorrectly asks for an index label of 0.
+    #
+    # iloc[0] explicitly selects the first row by position.
+    first_row = output.iloc[0]
+
+    valence = float(first_row["valence"])
+    arousal = float(first_row["arousal"])
+    dominance = float(first_row["dominance"])
+
+    return valence, arousal, dominance
+
+
+def extract_affective_values(
+    wav_file_path,
+    json_file_path,
+):
+    """
+    Extracts affective values for each timestamped word.
+
+    Each word is evaluated using a six-second audio window centred
+    around that word where possible.
+    """
+
+    audio_signal, sampling_rate = load_wav(
+        wav_file_path
+    )
+
+    transcriptions = process_json(
+        json_file_path
+    )
+
+    if not transcriptions:
+        raise RuntimeError(
+            "No timestamped words were found in the "
+            "transcription JSON."
+        )
 
     affective_values = []
-    window_size = 6
-    desired_duration = window_size * sampling_rate
 
-    for word in transcriptions:
-        print(word)
-        sample_from = int(word["start"] * sampling_rate)
-        sample_to = int(word["end"] * sampling_rate)
-        word_duration = sample_to - sample_from
-        offset = (desired_duration - word_duration) / 2
+    window_size_seconds = 6
+    desired_duration_samples = int(
+        window_size_seconds * sampling_rate
+    )
 
-        start = int(max(0, sample_from - offset))
-        end = int(min(len(np_wav), sample_to + offset))
+    total_words = len(transcriptions)
 
-        audio_segment = extract_audio_segment(np_wav, sampling_rate, start, end)
+    for index, word in enumerate(
+        transcriptions,
+        start=1,
+    ):
+        word_text = word["text"]
+        word_start = word["start"]
+        word_end = word["end"]
+
+        print(
+            f"[{index}/{total_words}] "
+            f"Processing {word_text!r} "
+            f"({word_start:.3f}s–{word_end:.3f}s)"
+        )
+
+        sample_from = int(
+            word_start * sampling_rate
+        )
+
+        sample_to = int(
+            word_end * sampling_rate
+        )
+
+        word_duration_samples = (
+            sample_to - sample_from
+        )
+
+        additional_samples = max(
+            0,
+            desired_duration_samples
+            - word_duration_samples,
+        )
+
+        offset = additional_samples / 2
+
+        segment_start = int(
+            max(
+                0,
+                sample_from - offset,
+            )
+        )
+
+        segment_end = int(
+            min(
+                len(audio_signal),
+                sample_to + offset,
+            )
+        )
+
+        audio_segment = extract_audio_segment(
+            audio_signal,
+            segment_start,
+            segment_end,
+        )
+
+        valence = None
+        arousal = None
+        dominance = None
 
         if audio_segment is None:
-            continue;  # Skip processing invalid audio segments
-        
-        try:
-            output = interface.process_signal(np_wav[start:end], sampling_rate)
-        except Exception as error:
-            valence = None
-            arousal = None
-            dominance = None
-            print(error)
+            print(
+                f"Skipping {word_text!r}: "
+                "the audio segment is invalid."
+            )
         else:
-            valence = output["valence"][0]
-            arousal = output["arousal"][0]
-            dominance = output["dominance"][0]
+            try:
+                (
+                    valence,
+                    arousal,
+                    dominance,
+                ) = get_affect_prediction(
+                    audio_segment,
+                    sampling_rate,
+                )
 
-        affective_values.append({
-            'from_time': word["start"],
-            'to_time': word["end"],
-            'text': word["text"],
-            'pred_valence': valence,
-            'pred_arousal': arousal,
-            'pred_dominance': dominance,
-        })
+            except Exception as error:
+                print(
+                    f"Could not process {word_text!r}: "
+                    f"{type(error).__name__}: {error}"
+                )
+
+        affective_values.append(
+            {
+                "from_time": word_start,
+                "to_time": word_end,
+                "text": word_text,
+                "pred_valence": valence,
+                "pred_arousal": arousal,
+                "pred_dominance": dominance,
+            }
+        )
 
     return affective_values
 
 
-def main(input_wav_file, input_json_file, output_json_file):
+def main(
+    input_wav_file,
+    input_json_file,
+    output_json_file,
+):
+    """
+    Main entry point for affect extraction.
+    """
+
+    input_wav_path = Path(input_wav_file)
+    input_json_path = Path(input_json_file)
+    output_json_path = Path(output_json_file)
+
+    if not input_wav_path.is_file():
+        raise FileNotFoundError(
+            f"WAV file not found: {input_wav_path}"
+        )
+
+    if not input_json_path.is_file():
+        raise FileNotFoundError(
+            "Transcription JSON file not found: "
+            f"{input_json_path}"
+        )
+
     load_model()
-    affective_values = extract_affective_values(input_wav_file, input_json_file)
 
-    f = json.dumps(affective_values, cls=NumpyFloatValuesEncoder,
-                   separators=(',',':'),
-                   sort_keys=True,
-                   indent=4)
+    affective_values = extract_affective_values(
+        str(input_wav_path),
+        str(input_json_path),
+    )
 
-    with open(output_json_file, 'w') as text_file:
-        text_file.write(f)
+    output_json_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    json_output = json.dumps(
+        affective_values,
+        cls=NumpyValuesEncoder,
+        separators=(",", ":"),
+        sort_keys=True,
+        indent=4,
+        ensure_ascii=False,
+    )
+
+    with open(
+        output_json_path,
+        "w",
+        encoding="utf-8",
+    ) as output_file:
+        output_file.write(json_output)
+
+    print(
+        f"Affect values written to: "
+        f"{output_json_path}"
+    )
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Extract prosodic values from WAV file using JSON timestamps.")
-    parser.add_argument("input_wav_file", help="Path to the input WAV file.")
-    parser.add_argument("input_json_file", help="Path to the input JSON file with timestamped transcriptions.")
-    parser.add_argument("output_json_file", help="Path to the output JSON file for saving prosodic values.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Extract valence, arousal, and dominance "
+            "values from a WAV file using timestamped "
+            "transcription data."
+        )
+    )
+
+    parser.add_argument(
+        "input_wav_file",
+        help="Path to the input WAV file.",
+    )
+
+    parser.add_argument(
+        "input_json_file",
+        help=(
+            "Path to the JSON file containing "
+            "timestamped transcriptions."
+        ),
+    )
+
+    parser.add_argument(
+        "output_json_file",
+        help=(
+            "Path to the output JSON file for the "
+            "affective values."
+        ),
+    )
+
     args = parser.parse_args()
 
-    main(args.input_wav_file, args.input_json_file, args.output_json_file)
+    main(
+        args.input_wav_file,
+        args.input_json_file,
+        args.output_json_file,
+    )
