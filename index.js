@@ -22,25 +22,84 @@ const pathsObject = {
   typographyModulationMappingsPath: "",
 };
 
-let options,
-  language = `English`,
-  scrollingCaptions = false;
+let options;
+let language = "English";
+let scrollingCaptions = false;
 
-const sleep = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Quotes a value so that paths containing spaces can safely be used
+ * in shell commands.
+ */
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
 
 function updateSpinner(message) {
   if (spinner !== null && spinner.isSpinning()) {
-    spinner.stop();
+    spinner.stop(true);
     process.stdout.write("\n");
   }
-  spinner = new Spinner(" " + message);
+
+  spinner = new Spinner(` ${message}`);
   spinner.setSpinnerString(18);
   spinner.start();
 }
 
+function stopCurrentSpinner() {
+  if (spinner !== null && spinner.isSpinning()) {
+    spinner.stop(true);
+  }
+}
+
 function finishCurrentSpinner(message) {
-  spinner.stop(true);
+  stopCurrentSpinner();
   console.log(`${chalk.greenBright("ok")} ${message}`);
+}
+
+/**
+ * Runs a shell command and returns a Promise.
+ *
+ * Importantly, this rejects the Promise if the command fails.
+ * Without reject(), the Node program would remain waiting forever.
+ */
+function runCommand(command, workingMessage, successMessage) {
+  updateSpinner(workingMessage);
+
+  return new Promise((resolve, reject) => {
+    exec(
+      command,
+      {
+        // Some Python/Whisper commands can produce a lot of output.
+        maxBuffer: 20 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          stopCurrentSpinner();
+
+          const errorDetails =
+            stderr?.trim() ||
+            stdout?.trim() ||
+            error.message ||
+            "Unknown command error";
+
+          reject(
+            new Error(
+              `Command failed:\n${command}\n\n${errorDetails}`,
+            ),
+          );
+
+          return;
+        }
+
+        finishCurrentSpinner(successMessage);
+
+        resolve({
+          stdout,
+          stderr,
+        });
+      },
+    );
+  });
 }
 
 async function moduleSelection() {
@@ -52,7 +111,9 @@ async function moduleSelection() {
       choices: [
         { value: "Audio Transcription" },
         { value: "Speech metrics: Prosody" },
-        { value: "Speech metrics: Valence, Arousal, Dominance" },
+        {
+          value: "Speech metrics: Valence, Arousal, Dominance",
+        },
         { value: "Generate Caption File" },
         { value: "Generate Captioned Video" },
       ],
@@ -60,17 +121,24 @@ async function moduleSelection() {
     {
       name: "captionStyle",
       type: "list",
-      message: chalk.greenBright("Do you want scrolling or block captions?"),
+      message: chalk.greenBright(
+        "Do you want scrolling or block captions?",
+      ),
       choices: ["Scrolling captions", "Block captions"],
     },
     {
       name: "language",
       type: "list",
-      message: chalk.greenBright("What is language do the characters speak?"),
+      message: chalk.greenBright(
+        "What language do the characters speak?",
+      ),
       choices: ["English", "Korean"],
     },
   ]);
-  scrollingCaptions = options.captionStyle === "Scrolling captions";
+
+  scrollingCaptions =
+    options.captionStyle === "Scrolling captions";
+
   language = options.language;
 }
 
@@ -80,310 +148,422 @@ async function moduleCalls() {
       case "Audio Transcription":
         await audioTranscription();
         break;
+
       case "Speech metrics: Prosody":
         await extractProsody();
         break;
+
       case "Speech metrics: Valence, Arousal, Dominance":
         await extractAffectiveDimensions();
         break;
+
       case "Generate Caption File":
         await generateCaptionFile();
         break;
+
       case "Generate Captioned Video":
         await generateCaptionedVideo();
         break;
+
+      default:
+        throw new Error(`Unknown module: ${option}`);
     }
   }
 }
 
-function outputMessage(s, prefix = null) {
+function outputMessage(message, prefix = null) {
   if (prefix === null) {
-    return chalk.cyanBright.bold(`\n>>> ${s}`);
+    return chalk.cyanBright.bold(`\n>>> ${message}`);
   }
-  return `${chalk.bgGreenBright.black(` ${prefix} `)} ${chalk.bold(s)}`;
+
+  return `${chalk.bgGreenBright.black(
+    ` ${prefix} `,
+  )} ${chalk.bold(message)}`;
 }
 
 function getFilenameRoot(originalPath) {
   return path.parse(originalPath);
-  // { root, dir, base, ext, name }
 }
 
+/**
+ * Creates a filename based on an existing parsed path.
+ *
+ * Example:
+ * damage.mp4 + "_affect" + ".json"
+ * becomes:
+ * damage_affect.json
+ */
 function newFile(pathObject, suffix, extension = null) {
   const { dir, name, ext } = pathObject;
-  const newDir = dir || "."; // Use the current directory as a default value if dir is empty
+
+  const newDir = dir || ".";
+
   return path.format({
     dir: newDir,
     name: name + suffix,
-    ext: extension ? extension : ext,
+    ext: extension ?? ext,
   });
 }
 
-async function readFilename(prompt) {
+async function readFilename(promptMessage) {
   const answers = await inquirer.prompt({
     name: "path",
     type: "input",
-    message: prompt,
+    message: promptMessage,
   });
-  return getFilenameRoot(path.normalize(answers.path));
+
+  const normalisedPath = path.normalize(
+    answers.path.trim(),
+  );
+
+  return getFilenameRoot(normalisedPath);
 }
 
-function extractAudio(audioFilePath) {
-  return new Promise(async (resolve, reject) => {
-    if (!pathsObject.audioFilePath) {
-      pathsObject.audioFilePath =
-        audioFilePath !== ""
-          ? audioFilePath
-          : await readFilename(
-              "From what file should we pull the speech from?",
-            );
-    }
-
-    if (!fs.existsSync(path.format(pathsObject.audioFilePath))) {
-      console.log(`${chalk.bgRed.white(" ERROR: ")} File not found`);
-      reject(new Error("File not found"));
-      return;
-    }
-
-    pathsObject.rectifiedAudioFilePath = path.parse(
-      newFile(pathsObject.audioFilePath, "_temp", ".wav"),
+function ensureSpeechInputsExist() {
+  if (!pathsObject.rectifiedAudioFilePath) {
+    throw new Error(
+      "No prepared WAV file is available. Select “Audio Transcription” before selecting speech-metric modules.",
     );
+  }
 
-    const command = `ffmpeg -y -i "${path.format(
-      pathsObject.audioFilePath,
-    )}" -vn -ac 1 "${path.format(pathsObject.rectifiedAudioFilePath)}";`;
+  const wavPath = path.format(
+    pathsObject.rectifiedAudioFilePath,
+  );
 
-    updateSpinner(outputMessage("Extracting audio...", "FFmpeg"));
+  if (!fs.existsSync(wavPath)) {
+    throw new Error(
+      `The prepared WAV file could not be found:\n${wavPath}`,
+    );
+  }
 
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("The audio has been extracted!", "FFmpeg"),
-          );
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
+  if (!pathsObject.rawTranscriptionPath) {
+    throw new Error(
+      "No timestamped transcription is available. Select “Audio Transcription” before selecting speech-metric modules.",
+    );
+  }
+
+  if (!fs.existsSync(pathsObject.rawTranscriptionPath)) {
+    throw new Error(
+      `The transcription file could not be found:\n${pathsObject.rawTranscriptionPath}`,
+    );
+  }
+}
+
+async function extractAudio(audioFilePath = "") {
+  if (!pathsObject.audioFilePath) {
+    if (audioFilePath) {
+      pathsObject.audioFilePath =
+        typeof audioFilePath === "string"
+          ? path.parse(path.normalize(audioFilePath))
+          : audioFilePath;
+    } else {
+      pathsObject.audioFilePath = await readFilename(
+        "From what file should we pull the speech?",
+      );
     }
-  });
+  }
+
+  const sourcePath = path.format(
+    pathsObject.audioFilePath,
+  );
+
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`File not found:\n${sourcePath}`);
+  }
+
+  const rectifiedAudioPath = newFile(
+    pathsObject.audioFilePath,
+    "_temp",
+    ".wav",
+  );
+
+  pathsObject.rectifiedAudioFilePath = path.parse(
+    rectifiedAudioPath,
+  );
+
+  const command = [
+    "ffmpeg",
+    "-y",
+    "-i",
+    shellQuote(sourcePath),
+    "-vn",
+    "-ac",
+    "1",
+    shellQuote(rectifiedAudioPath),
+  ].join(" ");
+
+  await runCommand(
+    command,
+    outputMessage("Extracting audio...", "FFmpeg"),
+    outputMessage(
+      "The audio has been extracted!",
+      "FFmpeg",
+    ),
+  );
 }
 
 async function audioTranscription(audioFilePath = "") {
-  console.log(outputMessage(`Audio Transcription`));
+  console.log(outputMessage("Audio Transcription"));
 
-  return new Promise(async (resolve, reject) => {
-    await extractAudio(audioFilePath);
+  await extractAudio(audioFilePath);
 
-    const transcriptionPath = path.normalize(
-      pathsObject.rectifiedAudioFilePath.dir +
-        "/" +
-        pathsObject.rectifiedAudioFilePath.name,
-    );
+  const wavPath = path.format(
+    pathsObject.rectifiedAudioFilePath,
+  );
 
-    // transcribes and renames
-    const model = `large`;
-    const command = `whisper_timestamped ${path.format(
-      pathsObject.rectifiedAudioFilePath,
-    )} --model ${model} --language ${language} --output_format json --vad True --output_dir ./ && mv ${path.format(
-      pathsObject.rectifiedAudioFilePath,
-    )}.words.json ${transcriptionPath}.json`;
+  const outputDirectory =
+    pathsObject.rectifiedAudioFilePath.dir || ".";
 
-    updateSpinner(outputMessage("Generating transcript...", "Whisper"));
+  const transcriptionRoot = path.join(
+    outputDirectory,
+    pathsObject.rectifiedAudioFilePath.name,
+  );
 
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("The transcript has been generated!", "Whisper"),
-          );
-          pathsObject.rawTranscriptionPath = transcriptionPath + ".json";
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
+  /*
+   * whisper_timestamped normally creates:
+   *
+   * damage_temp.wav.words.json
+   *
+   * We rename that to:
+   *
+   * damage_temp.json
+   */
+  const generatedWordsPath = path.join(
+    outputDirectory,
+    `${pathsObject.rectifiedAudioFilePath.base}.words.json`,
+  );
+
+  const finalTranscriptionPath =
+    `${transcriptionRoot}.json`;
+
+  const model = "large";
+
+  const command = [
+    "whisper_timestamped",
+    shellQuote(wavPath),
+    "--model",
+    shellQuote(model),
+    "--language",
+    shellQuote(language),
+    "--output_format",
+    "json",
+    "--vad",
+    "True",
+    "--output_dir",
+    shellQuote(outputDirectory),
+    "&&",
+    "mv",
+    shellQuote(generatedWordsPath),
+    shellQuote(finalTranscriptionPath),
+  ].join(" ");
+
+  await runCommand(
+    command,
+    outputMessage(
+      "Generating transcript...",
+      "Whisper",
+    ),
+    outputMessage(
+      "The transcript has been generated!",
+      "Whisper",
+    ),
+  );
+
+  pathsObject.rawTranscriptionPath =
+    finalTranscriptionPath;
 }
 
 async function extractProsody() {
-  console.log(outputMessage(`Speech metrics: Prosody`));
+  console.log(
+    outputMessage("Speech metrics: Prosody"),
+  );
 
-  return new Promise(async (resolve, reject) => {
-    pathsObject.prosodyJSONPath = newFile(
-      pathsObject.audioFilePath,
-      "_prosody",
-      ".json",
-    );
-    const command = `python3 ./prosodic_extraction.py ${path.format(
-      pathsObject.rectifiedAudioFilePath,
-    )} ${pathsObject.rawTranscriptionPath} ${pathsObject.prosodyJSONPath}`;
-    updateSpinner(outputMessage("Figuring out prosody...", "Python"));
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("Prosody has been figured out!", "Python"),
-          );
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
+  ensureSpeechInputsExist();
+
+  pathsObject.prosodyJSONPath = newFile(
+    pathsObject.audioFilePath,
+    "_prosody",
+    ".json",
+  );
+
+  const command = [
+    "python3",
+    shellQuote("./prosodic_extraction.py"),
+    shellQuote(
+      path.format(pathsObject.rectifiedAudioFilePath),
+    ),
+    shellQuote(pathsObject.rawTranscriptionPath),
+    shellQuote(pathsObject.prosodyJSONPath),
+  ].join(" ");
+
+  await runCommand(
+    command,
+    outputMessage(
+      "Figuring out prosody...",
+      "Python",
+    ),
+    outputMessage(
+      "Prosody has been figured out!",
+      "Python",
+    ),
+  );
 }
-async function extractAffectiveDimensions() {
-  console.log(outputMessage(`Speech metrics: Valence, Arousal, Dominance`));
 
-  return new Promise(async (resolve, reject) => {
-    pathsObject.affectJSONPath = newFile(
-      pathsObject.audioFilePath,
-      "_affect",
-      ".json",
-    );
-    const command = `python3 ./affect_extraction.py ${path.format(
-      pathsObject.rectifiedAudioFilePath,
-    )} ${pathsObject.rawTranscriptionPath} ${pathsObject.affectJSONPath}`;
-    updateSpinner(outputMessage("Figuring out emotions...", "Python"));
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("The emotions have been figured out!", "Python"),
-          );
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
+async function extractAffectiveDimensions() {
+  console.log(
+    outputMessage(
+      "Speech metrics: Valence, Arousal, Dominance",
+    ),
+  );
+
+  ensureSpeechInputsExist();
+
+  pathsObject.affectJSONPath = newFile(
+    pathsObject.audioFilePath,
+    "_affect",
+    ".json",
+  );
+
+  const command = [
+    "python3",
+    shellQuote("./affect_extraction.py"),
+    shellQuote(
+      path.format(pathsObject.rectifiedAudioFilePath),
+    ),
+    shellQuote(pathsObject.rawTranscriptionPath),
+    shellQuote(pathsObject.affectJSONPath),
+  ].join(" ");
+
+  await runCommand(
+    command,
+    outputMessage(
+      "Figuring out emotions...",
+      "Python",
+    ),
+    outputMessage(
+      "The emotions have been figured out!",
+      "Python",
+    ),
+  );
 }
 
 async function mergeProsodyAndAffect() {
-  return new Promise(async (resolve, reject) => {
-    pathsObject.paralanguageJSONPath = newFile(
-      pathsObject.audioFilePath,
-      "_paralanguage",
-      ".json",
-    );
-    const command = `python3 ./merge_prosody_and_affect.py ${pathsObject.prosodyJSONPath} ${pathsObject.affectJSONPath} ${pathsObject.paralanguageJSONPath}`;
-    updateSpinner(outputMessage("Merging prosody and emotions...", "Python"));
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage("Prosody and emotions have been merged!", "Python"),
-          );
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
+  pathsObject.paralanguageJSONPath = newFile(
+    pathsObject.audioFilePath,
+    "_paralanguage",
+    ".json",
+  );
+
+  const command = [
+    "python3",
+    shellQuote("./merge_prosody_and_affect.py"),
+    shellQuote(pathsObject.prosodyJSONPath),
+    shellQuote(pathsObject.affectJSONPath),
+    shellQuote(pathsObject.paralanguageJSONPath),
+  ].join(" ");
+
+  await runCommand(
+    command,
+    outputMessage(
+      "Merging prosody and emotions...",
+      "Python",
+    ),
+    outputMessage(
+      "Prosody and emotions have been merged!",
+      "Python",
+    ),
+  );
 }
 
 async function generateCaptionFile() {
-  return new Promise(async (resolve, reject) => {
-    console.log(outputMessage(`Generate Caption File`));
+  console.log(
+    outputMessage("Generate Caption File"),
+  );
 
-    if (
-      pathsObject.prosodyJSONPath !== "" &&
-      pathsObject.affectJSONPath !== ""
-    ) {
-      await mergeProsodyAndAffect();
-    } else if (pathsObject.prosodyJSONPath !== "") {
-      // do we only have a prosody file?
-      pathsObject.paralanguageJSONPath = pathsObject.prosodyJSONPath;
-    } else if (pathsObject.affectJSONPath !== "") {
-      // do we only have an affect file?
-      pathsObject.paralanguageJSONPath = pathsObject.affectJSONPath;
-    } else {
-      // don't we have any file??
-      console.log(
-        `${chalk.bgRed.white(
-          " ERROR: ",
-        )} No source paralanguage file (Prosody or Affect).`,
+  if (
+    pathsObject.prosodyJSONPath &&
+    pathsObject.affectJSONPath
+  ) {
+    await mergeProsodyAndAffect();
+  } else if (pathsObject.prosodyJSONPath) {
+    pathsObject.paralanguageJSONPath =
+      pathsObject.prosodyJSONPath;
+  } else if (pathsObject.affectJSONPath) {
+    pathsObject.paralanguageJSONPath =
+      pathsObject.affectJSONPath;
+  } else {
+    throw new Error(
+      "No source paralanguage file is available. Run Prosody, Affect, or both before generating the caption file.",
+    );
+  }
+
+  pathsObject.finalWebVTT = newFile(
+    pathsObject.audioFilePath,
+    "_caption",
+    ".vtt",
+  );
+
+  const commandParts = [
+    "python3",
+    shellQuote("./generate_caption_file.py"),
+    shellQuote(pathsObject.paralanguageJSONPath),
+    shellQuote(pathsObject.finalWebVTT),
+  ];
+
+  /*
+   * The transcription argument is required for block
+   * captions, but not for scrolling captions.
+   */
+  if (!scrollingCaptions) {
+    if (!pathsObject.rawTranscriptionPath) {
+      throw new Error(
+        "Block captions require a transcription file.",
       );
-      reject(error);
     }
 
-    pathsObject.finalWebVTT = newFile(
-      pathsObject.audioFilePath,
-      "_caption",
-      ".vtt",
+    commandParts.push(
+      shellQuote(pathsObject.rawTranscriptionPath),
     );
+  }
 
-    const command = `python3 ./generate_caption_file.py ${
-      pathsObject.paralanguageJSONPath
-    } ${pathsObject.finalWebVTT} ${
-      scrollingCaptions ? "" : pathsObject.rawTranscriptionPath
-    }`;
-    updateSpinner(
-      outputMessage("Preparing caption file (WebVTT)...", "Python"),
-    );
-    try {
-      exec(command, (error, stdout, stderr) => {
-        // This function is the callback that will be executed after the command finishes.
-        if (error) {
-          // Handle any errors that occurred during the command execution.
-          console.error("Error executing command:", error);
-        } else {
-          // The command completed successfully.
-          finishCurrentSpinner(
-            outputMessage(
-              "The WebVTT caption file has been created!",
-              "Python",
-            ),
-          );
-          resolve(); // Resolve the Promise on successful extraction
-        }
-      });
-    } catch (error) {
-      console.error("Error occurred:", error);
-      reject(error); // Reject the Promise on error
-    }
-  });
+  const command = commandParts.join(" ");
 
-  console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
+  await runCommand(
+    command,
+    outputMessage(
+      "Preparing caption file (WebVTT)...",
+      "Python",
+    ),
+    outputMessage(
+      "The WebVTT caption file has been created!",
+      "Python",
+    ),
+  );
 }
+
 async function generateCaptionedVideo() {
-  console.log(outputMessage(`Generate Captioned Video`));
-  console.log(chalk.bgRedBright.whiteBright(` SORRY! NOT IMPLEMENTED! `));
+  console.log(
+    outputMessage("Generate Captioned Video"),
+  );
+
+  console.log(
+    chalk.bgRedBright.whiteBright(
+      " SORRY! NOT IMPLEMENTED! ",
+    ),
+  );
 }
 
-await moduleSelection();
-await moduleCalls();
+try {
+  await moduleSelection();
+  await moduleCalls();
+} catch (error) {
+  stopCurrentSpinner();
+
+  console.error(
+    `\n${chalk.bgRed.white(" ERROR ")} ${chalk.red(
+      error.message,
+    )}`,
+  );
+
+  process.exitCode = 1;
+}
